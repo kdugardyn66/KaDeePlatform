@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- KadeeStudio logo (D2): a K drawn in a 3x3 grid of module tiles, an AI spark on the centre tile -->
+  <rect x="1" y="1" width="254" height="254" rx="57" fill="#FFFFFF" stroke="#E3E0D9" stroke-width="2"/>
+  <rect x="41" y="41" width="54" height="54" rx="15" fill="#2F5DD6"/>
+  <rect x="41" y="107" width="54" height="54" rx="15" fill="#2F5DD6"/>
+  <rect x="41" y="173" width="54" height="54" rx="15" fill="#2F5DD6"/>
+  <rect x="107" y="41" width="54" height="54" rx="15" fill="#DCE4F8"/>
+  <rect x="107" y="173" width="54" height="54" rx="15" fill="#DCE4F8"/>
+  <rect x="173" y="41" width="54" height="54" rx="15" fill="#2F5DD6"/>
+  <rect x="173" y="107" width="54" height="54" rx="15" fill="#DCE4F8"/>
+  <rect x="173" y="173" width="54" height="54" rx="15" fill="#2F5DD6"/>
+  <rect x="107" y="107" width="54" height="54" rx="15" fill="#FFB020"/>
+  <path d="M134 114 C137.6 130.4 137.6 130.4 154 134 C137.6 137.6 137.6 137.6 134 154 C130.4 137.6 130.4 137.6 114 134 C130.4 130.4 130.4 130.4 134 114 Z" fill="#FFFFFF"/>
+</svg>

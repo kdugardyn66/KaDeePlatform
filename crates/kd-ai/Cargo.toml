@@ -1,0 +1,20 @@
+[package]
+name = "kd-ai"
+description = "kd-ai: KaDee AI — one API over Anthropic, Gemini, OpenAI, Mistral, local Ollama and LM Studio, and any OpenAI-compatible endpoint"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+log = "0.4"
+toml = "1"
+thiserror = "2"
+base64 = "0.22"
+ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier", "gzip", "json"] }
+
+[dev-dependencies]
+tempfile.workspace = true

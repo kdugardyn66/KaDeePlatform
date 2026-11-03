@@ -1,0 +1,19 @@
+[package]
+name = "kadee-studio"
+description = "KadeeStudio on the KaDee Platform — the GPUI desktop app: window, shell and Start screen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kd-commands.workspace = true
+kd-store.workspace = true
+kd-ai.workspace = true
+kd-ui.workspace = true
+gpui.workspace = true
+chrono.workspace = true
+# Delete file / Delete folder: to the Trash or Recycle Bin.
+trash = "5"
+env_logger = "0.11"

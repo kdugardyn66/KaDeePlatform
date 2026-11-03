@@ -1,0 +1,296 @@
+//! The New document page, the Crafting Apps page and the file tab.
+
+use std::path::Path;
+
+use gpui::{Context, FontWeight, IntoElement, ParentElement, Styled, div, prelude::*, px};
+use kd_commands::Command;
+use kd_store::{CRAFT_APPS, DocKind, ModuleKind, OfficeKind, human_size, now, relative_time};
+use kd_ui::{Icon, Palette, Theme, button, doc_badge, icon, module_badge, primary_button};
+
+use super::home::craft_icon;
+use super::{column, content_column, on_cmd, page_title, section_title};
+use crate::app::{KadeeApp, file_name, office_label};
+
+pub fn new_page(app: &mut KadeeApp, cx: &mut Context<KadeeApp>) -> impl IntoElement {
+    let pal = Theme::palette(cx);
+    let dir = app.state.settings.documents_dir.clone();
+    let mut kadee = div().grid().grid_cols(2).gap(px(12.0));
+    for kind in [ModuleKind::Markdown, ModuleKind::Dashboard, ModuleKind::Report, ModuleKind::Pdf] {
+        let cmd = Command::NewDocument(kind);
+        let key = app.shortcut(&cmd);
+        let label = if kind == ModuleKind::Pdf { "Open a PDF…".to_string() } else { format!("New {}", kind.short().to_lowercase()) };
+        kadee = kadee.child(
+            new_row(("new", kind as usize), module_badge(kind, 38.0, &pal), label, kind.tagline().to_string(), key, &pal)
+                .on_click(on_cmd(cmd, cx)),
+        );
+    }
+    let mut office = div().grid().grid_cols(2).gap(px(12.0));
+    for (i, kind) in OfficeKind::ALL.into_iter().enumerate() {
+        let cmd = Command::NewOffice(kind);
+        let key = app.shortcut(&cmd);
+        let badge = match DocKind::from_path(Path::new(&format!("x.{}", kind.extension()))) {
+            Some(dk) => doc_badge(&dk, 38.0, &pal),
+            None => kd_ui::badge("DOC", 38.0, pal.accent, &pal),
+        };
+        let sub = format!(".{} · opens in {}", kind.extension(), kind.app());
+        office =
+            office.child(new_row(("office", i), badge, format!("New {}", office_label(kind)), sub, key, &pal).on_click(on_cmd(cmd, cx)));
+    }
+    content_column("new-scroll", &pal).child(
+        column()
+            .child(page_title("New document", format!("New documents go into “{}”", file_name(&dir)), &pal))
+            .child(section_title("KadeeStudio", None, &pal))
+            .child(div().h(px(12.0)))
+            .child(kadee)
+            .child(div().h(px(30.0)))
+            .child(section_title("Office documents", Some("blank files for WordCraft, GridCraft and DeckCraft".into()), &pal))
+            .child(div().h(px(12.0)))
+            .child(office)
+            .child(div().h(px(30.0)))
+            .child(div().flex().gap(px(10.0)).child(button("new-open", "Open file…", &pal).on_click(on_cmd(Command::OpenDialog, cx)))),
+    )
+}
+
+fn new_row(
+    id: impl Into<gpui::ElementId>,
+    lead: gpui::Div,
+    title: String,
+    sub: String,
+    key: Option<String>,
+    pal: &Palette,
+) -> gpui::Stateful<gpui::Div> {
+    let (hover_bg, hover_border) = (pal.surface_hover, pal.border_strong);
+    div()
+        .id(id)
+        .h(px(70.0))
+        .px(px(16.0))
+        .flex()
+        .items_center()
+        .gap(px(14.0))
+        .rounded(px(10.0))
+        .bg(pal.surface)
+        .border_1()
+        .border_color(pal.border)
+        .cursor_pointer()
+        .hover(move |s| s.bg(hover_bg).border_color(hover_border))
+        .child(lead)
+        .child(
+            div()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .min_w_0()
+                .child(div().text_size(px(15.0)).child(title))
+                .child(div().text_size(px(13.0)).text_color(pal.text_muted).child(sub)),
+        )
+        .when_some(key, |d, k| {
+            d.child(
+                div()
+                    .px(px(7.0))
+                    .py(px(2.0))
+                    .rounded(px(5.0))
+                    .bg(pal.surface_hover)
+                    .text_size(px(12.0))
+                    .text_color(pal.text_muted)
+                    .child(k),
+            )
+        })
+}
+
+pub fn craft_apps(app: &mut KadeeApp, cx: &mut Context<KadeeApp>) -> impl IntoElement {
+    let pal = Theme::palette(cx);
+    let n = app.installed.len();
+    let mut list = div().flex().flex_col().rounded(px(12.0)).bg(pal.surface).border_1().border_color(pal.border).overflow_hidden();
+    for (i, a) in CRAFT_APPS.iter().enumerate() {
+        let found = app.installed_app(a.id).cloned();
+        let status = match &found {
+            Some(f) => format!("Installed{} · {}", f.version.as_deref().map(|v| format!(" · {v}")).unwrap_or_default(), f.source),
+            None => "Not installed".to_string(),
+        };
+        let exts = if a.extensions.is_empty() {
+            String::new()
+        } else {
+            a.extensions.iter().take(6).map(|e| format!(".{e}")).collect::<Vec<_>>().join(" ")
+        };
+        let action = match &found {
+            Some(_) => primary_button(("craft-open", i), "Open", &pal)
+                .on_click(on_cmd(Command::LaunchCraft(a.id.to_string()), cx))
+                .into_any_element(),
+            None => div().text_size(px(13.0)).text_color(pal.text_faint).child("—").into_any_element(),
+        };
+        list = list.child(
+            div()
+                .h(px(70.0))
+                .px(px(18.0))
+                .flex()
+                .items_center()
+                .gap(px(14.0))
+                .when(i > 0, |d| d.border_t_1().border_color(pal.border))
+                .child(craft_icon(a.id, a.badge, 42.0, &pal))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .flex()
+                                .items_baseline()
+                                .gap(px(8.0))
+                                .child(div().text_size(px(15.5)).child(a.name))
+                                .child(div().text_size(px(12.5)).text_color(pal.text_faint).child(format!("{} · {}", a.purpose, a.maker))),
+                        )
+                        .child(
+                            div().text_size(px(12.5)).text_color(if found.is_some() { pal.success } else { pal.text_faint }).child(status),
+                        ),
+                )
+                .child(div().w(px(230.0)).text_size(px(12.5)).text_color(pal.text_faint).child(exts))
+                .child(div().w(px(80.0)).flex().justify_end().child(action)),
+        );
+    }
+    content_column("craft-scroll", &pal).child(
+        column()
+            .child(page_title(
+                "Crafting Apps",
+                format!(
+                    "{n} of {} installed on this computer · they open on their own until Phase {}",
+                    CRAFT_APPS.len(),
+                    kd_store::CRAFT_PHASE
+                ),
+                &pal,
+            ))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(10.0))
+                    .mb(px(18.0))
+                    .child(
+                        primary_button("craft-launcher", "Get them with the ArtCraft launcher", &pal)
+                            .on_click(on_cmd(Command::OpenUrl(kd_store::LAUNCHER_REPO.into()), cx)),
+                    )
+                    .child(button("craft-again", "Look again", &pal).on_click(on_cmd(Command::Refresh, cx))),
+            )
+            .child(list),
+    )
+}
+
+/// A document's tab: its details, the app that edits it and a preview of text files, until the
+/// editors arrive.
+pub fn file_tab(app: &mut KadeeApp, path: &Path, cx: &mut Context<KadeeApp>) -> impl IntoElement {
+    let pal = Theme::palette(cx);
+    let Some(kind) = DocKind::from_path(path) else { return div().into_any_element() };
+    let meta = std::fs::metadata(path).ok();
+    let size = meta.as_ref().map(|m| human_size(m.len())).unwrap_or_else(|| "—".into());
+    let modified = meta
+        .as_ref()
+        .and_then(|m| m.modified().ok())
+        .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| relative_time(d.as_secs(), now()))
+        .unwrap_or_else(|| "—".into());
+    let starred = app.state.library.is_starred(path);
+    let craft = app.craft_for(&kind).cloned();
+    let p = path.to_path_buf();
+
+    let mut actions = div().flex().flex_wrap().gap(px(10.0));
+    if let Some(c) = &craft {
+        let name = c.app.name;
+        let c2 = c.clone();
+        let p2 = p.clone();
+        actions =
+            actions.child(primary_button("ft-craft", format!("Open in {name}"), &pal).on_click(cx.listener(move |this, _, _, cx| {
+                match c2.launch(Some(&p2)) {
+                    Ok(()) => this.notify(format!("Opening in {name}…"), cx),
+                    Err(e) => this.notify(format!("Could not open {name}: {e}"), cx),
+                }
+            })));
+    }
+    actions = actions
+        .child(button("ft-default", "Open in default app", &pal).on_click(on_cmd(Command::OpenExternally(p.clone()), cx)))
+        .child(button("ft-reveal", "Show in folder", &pal).on_click(on_cmd(Command::RevealInFolder(p.clone()), cx)))
+        .child(button("ft-star", if starred { "Unstar" } else { "Star" }, &pal).on_click(on_cmd(Command::ToggleStar(p.clone()), cx)))
+        .child(button("ft-ai", "Ask KaDee AI", &pal).on_click(cx.listener(|this, _, window, cx| {
+            this.ai_pane = true;
+            this.composer.read(cx).focus(window);
+            cx.notify();
+        })));
+
+    let editor_note = format!("The {} editor arrives in Phase {} of the KaDee Platform.", kind.app_name(), kind.phase());
+    let info = |label: &'static str, value: String| {
+        div()
+            .flex()
+            .gap(px(12.0))
+            .child(div().w(px(90.0)).text_color(pal.text_faint).child(label))
+            .child(div().flex_1().min_w_0().overflow_hidden().child(value))
+    };
+    let details = div()
+        .flex()
+        .flex_col()
+        .gap(px(8.0))
+        .p(px(18.0))
+        .rounded(px(12.0))
+        .bg(pal.surface)
+        .border_1()
+        .border_color(pal.border)
+        .text_size(px(14.0))
+        .child(info("Kind", format!("{} · {}", kind.group.label(), kind.app_name())))
+        .child(info("Size", size))
+        .child(info("Modified", modified))
+        .child(info("Location", path.parent().map(|d| d.display().to_string()).unwrap_or_default()));
+
+    let preview = text_preview(path).map(|text| {
+        div().flex().flex_col().gap(px(10.0)).child(section_title("Preview", None, &pal)).child(
+            div()
+                .p(px(18.0))
+                .rounded(px(12.0))
+                .bg(pal.surface)
+                .border_1()
+                .border_color(pal.border)
+                .font_family("JetBrains Mono, Menlo, DejaVu Sans Mono, monospace")
+                .text_size(px(13.0))
+                .line_height(px(20.0))
+                .text_color(pal.text_muted)
+                .children(text.lines().take(400).map(|l| div().child(if l.is_empty() { " ".to_string() } else { l.to_string() }))),
+        )
+    });
+
+    content_column("file-scroll", &pal)
+        .child(
+            column()
+                .gap(px(22.0))
+                .child(
+                    div().flex().items_center().gap(px(16.0)).child(doc_badge(&kind, 56.0, &pal)).child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(4.0))
+                            .min_w_0()
+                            .child(div().text_size(px(26.0)).font_weight(FontWeight::NORMAL).child(file_name(path)))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(6.0))
+                                    .text_size(px(13.5))
+                                    .text_color(pal.text_muted)
+                                    .child(icon(Icon::Info, 14.0, pal.text_faint))
+                                    .child(editor_note),
+                            ),
+                    ),
+                )
+                .child(actions)
+                .child(details)
+                .children(preview),
+        )
+        .into_any_element()
+}
+
+/// The text of a small text document (Markdown, CSV, JSON …), for the preview.
+fn text_preview(path: &Path) -> Option<String> {
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    let texty = matches!(ext.as_str(), "md" | "markdown" | "mdd" | "mds" | "txt" | "csv" | "json" | "xml" | "kdash" | "kreport" | "svg");
+    if !texty || std::fs::metadata(path).ok()?.len() > 512 * 1024 {
+        return None;
+    }
+    std::fs::read_to_string(path).ok()
+}

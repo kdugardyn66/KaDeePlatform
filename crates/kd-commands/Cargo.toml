@@ -1,0 +1,11 @@
+[package]
+name = "kd-commands"
+description = "kd-commands: every action is a Command with a stable id; key maps and key sequences (no UI)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kd-store.workspace = true

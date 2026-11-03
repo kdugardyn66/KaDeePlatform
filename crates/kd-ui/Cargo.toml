@@ -1,0 +1,13 @@
+[package]
+name = "kd-ui"
+description = "KaDee design tokens, light and dark themes, icons and shared GPUI widgets (text input, pills, badges)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kd-store.workspace = true
+gpui.workspace = true
+unicode-segmentation = "1"

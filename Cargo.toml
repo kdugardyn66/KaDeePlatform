@@ -1,0 +1,40 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/kd-commands",
+    "crates/kd-store",
+    "crates/kd-ai",
+    "crates/kd-ui",
+    "apps/kadee-studio",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+authors = ["Kris Dugardyn"]
+repository = "https://github.com/kdugardyn66/KaDeePlatform"
+rust-version = "1.88"
+
+[workspace.dependencies]
+kd-commands = { path = "crates/kd-commands" }
+kd-store = { path = "crates/kd-store" }
+kd-ai = { path = "crates/kd-ai" }
+kd-ui = { path = "crates/kd-ui" }
+gpui = "0.2.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+directories = "6"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+open = "5"
+tempfile = "3"
+
+[profile.dev.package."*"]
+# GPUI and its dependencies are slow unoptimised; our own crates stay quick to rebuild.
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

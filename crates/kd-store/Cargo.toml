@@ -1,0 +1,18 @@
+[package]
+name = "kd-store"
+description = "kd-store: catalogues, Recent and Starred (SQLite), settings (home.json) and file helpers — no UI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+rusqlite.workspace = true
+plist = "1"
+directories.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
