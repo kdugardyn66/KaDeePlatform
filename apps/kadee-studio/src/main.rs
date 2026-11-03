@@ -1,3 +1,5 @@
+// A window app on Windows: no console behind it (debug builds keep one for the logs).
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 //! KadeeStudio on the KaDee Platform: the GPUI desktop app.
 //!
 //! v0.1.0 is the standalone ("Solo, no server") start screen: tab strip, sidebar, greeting,
@@ -80,7 +82,7 @@ fn main() {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     titlebar: Some(TitlebarOptions { title: Some("KadeeStudio".into()), ..Default::default() }),
                     window_min_size: Some(size(px(880.0), px(560.0))),
-                    app_id: Some("be.kadee.KadeeStudio".into()),
+                    app_id: Some("be.kadee.KaDeePlatform".into()),
                     ..Default::default()
                 },
                 |window, cx| cx.new(|cx| KadeeApp::new(window, cx)),

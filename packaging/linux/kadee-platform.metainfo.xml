@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>be.kadee.KaDeePlatform</id>
+  <name>KadeeStudio</name>
+  <summary>Native Rust office suite on the GPU, with KaDee AI</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <developer id="be.kadee">
+    <name>Kris Dugardyn</name>
+  </developer>
+  <description>
+    <p>The KaDee Platform brings documents, the Crafting Apps and KaDee AI together in one native app,
+    drawn on the GPU with GPUI. It works on its own; a self-hosted team server follows.</p>
+  </description>
+  <launchable type="desktop-id">be.kadee.KaDeePlatform.desktop</launchable>
+  <url type="homepage">https://github.com/kdugardyn66/KaDeePlatform</url>
+  <categories>
+    <category>Office</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>

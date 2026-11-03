@@ -13,6 +13,8 @@ The KaDee Platform's first version: KadeeStudio's start screen as a standalone G
 - **Recent and Starred in SQLite** (`library.sqlite3`); settings stay in `home.json`.
 - **Import from KadeeStudio 0.x** on the first launch: settings, Recent, Starred and `ai.toml`.
 - **Shortcuts** are GPUI key bindings generated from kd-commands' key map, including sequences (`Cmd+N M`).
+- **Build scripts** as in KadeeStudio: `build.sh`, `scripts/build-macos.sh` (.app, .dmg, universal, signing, notarization; runtime shaders when the Metal compiler is missing), `scripts/build-linux.sh` (.tar.gz, .deb, .rpm, AppImage), `scripts/build-windows.ps1` (.zip, .msi), and the CI and Release workflows. Installers are named KaDee Platform so they sit next to KadeeStudio 0.x.
+- Settings › About shows the build (commit and date); the Windows executable has the app icon and runs without a console.
 - A text input for GPUI in `kd-ui` (one line or wrapped lines, selection, clipboard, IME, masking) for search, names, API keys and the AI composer.
 
 Not yet in 0.1.0 (KadeeStudio 0.3 has them): the Kadee Markdown editor, the shortcut editor, adding custom AI providers and per-module models, and the Done/Cancel of Settings.

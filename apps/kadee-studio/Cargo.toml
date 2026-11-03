@@ -1,5 +1,6 @@
 [package]
 name = "kadee-studio"
+build = "build.rs"
 description = "KadeeStudio on the KaDee Platform — the GPUI desktop app: window, shell and Start screen"
 version.workspace = true
 edition.workspace = true
@@ -17,3 +18,12 @@ chrono.workspace = true
 # Delete file / Delete folder: to the Trash or Recycle Bin.
 trash = "5"
 env_logger = "0.11"
+
+[features]
+default = []
+# Compile GPUI's Metal shaders when the app starts instead of at build time (macOS without the
+# Metal Toolchain; scripts/build-macos.sh turns it on by itself when needed).
+runtime-shaders = ["gpui/runtime_shaders"]
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"

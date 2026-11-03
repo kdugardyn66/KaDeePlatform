@@ -434,6 +434,7 @@ fn about(app: &KadeeApp, pal: &Palette, cx: &mut Context<KadeeApp>) -> impl Into
                 .flex_col()
                 .gap(px(6.0))
                 .text_size(px(14.0))
+                .child(info("Build", format!("{} · {}", env!("KADEE_COMMIT"), env!("KADEE_BUILD_DATE"))))
                 .child(info("System", os))
                 .child(info("Renderer", if cfg!(target_os = "macos") { "GPUI · Metal".into() } else if cfg!(windows) { "GPUI · DirectX".into() } else { "GPUI · Vulkan".into() }))
                 .child(info("Settings", app.store.dir().display().to_string()))

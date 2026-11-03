@@ -30,20 +30,36 @@ A native office, creative and BI suite in Rust, drawn on the GPU with [GPUI](htt
 
 ## Build and run
 
-Rust 1.88 or later.
+Rust 1.88 or later. For development:
 
 ```sh
 cargo run -p kadee-studio --release
 cargo test --workspace
 ```
 
-- **macOS**: Xcode command-line tools (Metal).
-- **Linux**: `libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libx11-xcb-dev libfontconfig-dev libfreetype-dev libzstd-dev libssl-dev` and a Vulkan driver (`mesa-vulkan-drivers`). Wayland and X11 both work.
-- **Windows**: the MSVC toolchain (DirectX).
-
 `--page=recent|starred|new|craft` opens that page first.
 
-`Cargo.lock` pins `libc` to 0.2.188: GPUI 0.2.2 pulls in `xattr` 0.2, which does not build with later `libc` releases on Linux. Keep the lock file when updating.
+### Installers
+
+`./build.sh` builds for the system it runs on and puts everything in `dist/` (with a `.sha256` per file). Every script takes `--help`, `--run` (build, then start) and `--clean`.
+
+| System | Command | Result |
+|---|---|---|
+| macOS | `./scripts/build-macos.sh` (`--universal` for Apple silicon + Intel, `--no-dmg`) | `KaDeePlatform.app`, `KaDeePlatform-0.1.0-macos-<arch>.dmg` |
+| Linux | `./scripts/build-linux.sh` (`--tar-only`, `--target aarch64-unknown-linux-gnu`) | `.tar.gz` with `install.sh`; `.deb`, `.rpm` and AppImage when `dpkg-deb`, `rpmbuild`, `appimagetool` are installed |
+| Windows | `.\scripts\build-windows.ps1` (`-Msi`, `-Arch arm64`) | portable `.zip`; `.msi` with the WiX CLI |
+
+What each system needs:
+
+- **macOS**: Xcode command-line tools. GPUI compiles its Metal shaders at build time with `xcrun metal`; without the Metal Toolchain (Xcode 26: `xcodebuild -downloadComponent MetalToolchain`) the script builds with runtime-compiled shaders instead (`--features runtime-shaders`). Signing and notarization: `APPLE_SIGNING_IDENTITY`, `APPLE_NOTARY_PROFILE`; otherwise the app is ad-hoc signed. `DMG_LAYOUT=0` makes a plain .dmg without the Finder layout (CI).
+- **Linux**: `libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libx11-xcb-dev libfontconfig-dev libfreetype-dev libzstd-dev libssl-dev` (the script names any that are missing) and, to run, a Vulkan driver (`mesa-vulkan-drivers`). Wayland and X11 both work.
+- **Windows**: Rust's MSVC toolchain and the "Desktop development with C++" workload (DirectX 11). For `-Msi`: `dotnet tool install --global wix` and `wix extension add --global WixToolset.UI.wixext`. Signing: `KADEE_SIGN_CERT`, `KADEE_SIGN_PASSWORD`.
+
+The installers are named **KaDee Platform** (`KaDeePlatform.app`, package `kadee-platform`, `Program Files\KaDee Platform`, id `be.kadee.KaDeePlatform`), so they install next to KadeeStudio 0.x instead of replacing it; the app inside is still called KadeeStudio.
+
+GitHub Actions: **CI** runs fmt, clippy, tests and a release build on all three systems; **Release** (run it by hand, or push a tag `v0.1.0`) builds the .dmg, .tar.gz/.deb/.rpm/AppImage and .zip/.msi and publishes them on a tag.
+
+`Cargo.lock` pins `libc` to 0.2.188: GPUI 0.2.2 pulls in `xattr` 0.2, which does not build with later `libc` releases on Linux. The scripts build with `--locked`, so keep the lock file when updating.
 
 ## Code layout
 
@@ -57,6 +73,8 @@ kadee-platform/
 │  ├─ kd-ai/            KaDee AI: providers, catalogue, streaming chat, tools (from kadee-ai)
 │  └─ kd-store/         catalogues, Recent/Starred (SQLite), home.json, file helpers (from kadee-core)
 ├─ assets/app-icon/     the KadeeStudio icon
+├─ scripts/             build-macos.sh, build-linux.sh, build-windows.ps1 (and build.sh at the top)
+├─ packaging/           .desktop and AppStream files, the .dmg background, the WiX installer
 └─ docs/                architecture notes and the roadmap
 ```
 
