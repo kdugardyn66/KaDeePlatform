@@ -130,7 +130,45 @@ pub fn primary_button(id: impl Into<ElementId>, label: impl Into<SharedString>, 
 /// A red button for destructive actions.
 pub fn danger_button(id: impl Into<ElementId>, label: impl Into<SharedString>, pal: &Palette) -> Stateful<Div> {
     let hover = mix(pal.danger, pal.canvas, 0.12);
-    primary_button(id, label, pal).bg(pal.danger).text_color(gpui::white()).hover(move |s| s.bg(hover))
+    div()
+        .id(id)
+        .h(px(32.0))
+        .px(px(14.0))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded(px(7.0))
+        .bg(pal.danger)
+        .text_color(gpui::white())
+        .text_size(px(13.5))
+        .font_weight(FontWeight::MEDIUM)
+        .cursor_pointer()
+        .hover(move |s| s.bg(hover))
+        .child(label.into())
+}
+
+/// An outlined red button: Remove, Delete … in a form.
+pub fn danger_outline_button(id: impl Into<ElementId>, label: impl Into<SharedString>, pal: &Palette) -> Stateful<Div> {
+    let danger = pal.danger;
+    let hover = mix(pal.surface, danger, 0.12);
+    div()
+        .id(id)
+        .h(px(32.0))
+        .px(px(12.0))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded(px(7.0))
+        .border_1()
+        .border_color(mix(pal.border, danger, 0.5))
+        .bg(pal.surface)
+        .text_color(danger)
+        .text_size(px(13.5))
+        .cursor_pointer()
+        .hover(move |s| s.bg(hover).border_color(danger))
+        .child(label.into())
 }
 
 /// The KaDee logo: a K drawn in a 3×3 grid of module tiles, with an AI spark on the amber

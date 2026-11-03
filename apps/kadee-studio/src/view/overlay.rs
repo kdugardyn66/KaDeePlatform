@@ -15,6 +15,7 @@ enum Item {
     Header(String),
     Model { label: String, model: Option<kd_ai::ModelRef>, selected: bool },
     Separator,
+    Pick { label: String, key: String, tag: Option<&'static str>, note: String, selected: bool, picker: crate::settings_state::Picker },
 }
 
 pub fn menu(app: &mut KadeeApp, _window: &mut Window, cx: &mut Context<KadeeApp>) -> Option<AnyElement> {
@@ -114,6 +115,26 @@ pub fn menu(app: &mut KadeeApp, _window: &mut Window, cx: &mut Context<KadeeApp>
                 items.push(cmd("Remove from list", Command::UnpinFolder(dir.clone())));
             }
         }
+        MenuKind::Pick(picker) => {
+            width = match picker {
+                crate::settings_state::Picker::ShortcutAction => 360.0,
+                _ => 460.0,
+            };
+            for row in app.picker_rows(picker) {
+                if row.header {
+                    items.push(Item::Header(row.label));
+                } else {
+                    items.push(Item::Pick {
+                        label: row.label,
+                        key: row.key,
+                        tag: row.tag,
+                        note: row.note,
+                        selected: row.selected,
+                        picker: picker.clone(),
+                    });
+                }
+            }
+        }
         MenuKind::Model => {
             width = 320.0;
             let key = app.chat_key();
@@ -160,6 +181,26 @@ pub fn menu(app: &mut KadeeApp, _window: &mut Window, cx: &mut Context<KadeeApp>
                     this.close_menu(cx);
                     this.run(cmd.clone(), window, cx)
                 }))
+                .into_any_element(),
+            Item::Pick { label, key, tag, note, selected, picker } => div()
+                .id(("pick", i))
+                .h(px(32.0))
+                .px(px(10.0))
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .rounded(px(6.0))
+                .cursor_pointer()
+                .text_size(px(13.5))
+                .when(selected, |d| d.bg(pal.accent_soft).text_color(pal.accent))
+                .when(!selected, |d| d.hover(move |s| s.bg(hover)))
+                .child(div().min_w_0().truncate().child(label))
+                .when_some(tag, |d, t| {
+                    d.child(div().px(px(7.0)).rounded(px(9.0)).bg(pal.accent_soft).text_color(pal.accent).text_size(px(11.0)).child(t))
+                })
+                .child(div().flex_1())
+                .when(!note.is_empty(), |d| d.child(div().text_size(px(12.0)).text_color(pal.text_faint).child(note)))
+                .on_click(cx.listener(move |this, _, _, cx| this.pick(&picker, &key, cx)))
                 .into_any_element(),
             Item::Model { label, model, selected } => div()
                 .id(("model", i))
@@ -267,17 +308,24 @@ pub fn toast(app: &KadeeApp, cx: &mut Context<KadeeApp>) -> Option<AnyElement> {
     let msg: SharedString = msg.clone();
     Some(
         deferred(
-            div().absolute().bottom(px(28.0)).left_0().right_0().flex().justify_center().child(
-                div()
-                    .px(px(16.0))
-                    .py(px(10.0))
-                    .rounded(px(9.0))
-                    .bg(pal.text)
-                    .text_color(pal.surface)
-                    .text_size(px(14.0))
-                    .shadow_lg()
-                    .child(msg),
-            ),
+            div()
+                .absolute()
+                .bottom(px(if app.settings.is_some() { 108.0 } else { 28.0 }))
+                .left_0()
+                .right_0()
+                .flex()
+                .justify_center()
+                .child(
+                    div()
+                        .px(px(16.0))
+                        .py(px(10.0))
+                        .rounded(px(9.0))
+                        .bg(pal.text)
+                        .text_color(pal.surface)
+                        .text_size(px(14.0))
+                        .shadow_lg()
+                        .child(msg),
+                ),
         )
         .with_priority(4)
         .into_any_element(),

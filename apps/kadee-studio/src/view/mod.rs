@@ -46,6 +46,7 @@ impl Render for KadeeApp {
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::on_run_command))
             .on_action(cx.listener(Self::on_dismiss))
+            .on_key_down(cx.listener(Self::on_key_down))
             .size_full()
             .relative()
             .flex()

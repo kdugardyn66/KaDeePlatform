@@ -5,15 +5,14 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use gpui::{
     App, AppContext, ClipboardItem, Context, Entity, FocusHandle, PathPromptOptions, Pixels, Point, ScrollHandle, SharedString,
     Subscription, Task, Window,
 };
-use kd_ai::{AiConfig, AiHub, AppKind, ChatState, ModelRef};
-use kd_commands::{Command, Keymap, Os, Page, SettingsSection};
+use kd_ai::{AiHub, AppKind, ChatState, ModelRef};
+use kd_commands::{Command, Keymap, Os, Page};
 use kd_store::{
     DocGroup, DocKind, FileEntry, HomeState, InstalledApp, ModuleKind, OfficeKind, Store, ThemePref, create_new_document,
     create_office_document, list_documents, list_subfolders, now,
@@ -44,6 +43,8 @@ pub enum MenuKind {
     Folder { dir: PathBuf, root: Option<bool> },
     /// The model picker of the KaDee AI composer.
     Model,
+    /// A drop-down list in Settings.
+    Pick(crate::settings_state::Picker),
 }
 
 pub struct OpenMenu {
@@ -62,23 +63,7 @@ pub enum Dialog {
     Missing { path: PathBuf },
 }
 
-/// What a connection test answers: the provider's models and an account note.
-type TestResult = Result<(Vec<String>, Option<String>), kd_ai::AiError>;
-
-/// A connection test in Settings › AI providers.
-pub enum TestState {
-    Running(Receiver<TestResult>),
-    Ok(usize, Option<String>),
-    Err(String),
-}
-
-/// Settings, shown in the middle pane.
-pub struct SettingsUi {
-    pub section: SettingsSection,
-    /// The provider whose key and endpoint are open for editing.
-    pub expanded: Option<String>,
-    pub tests: HashMap<String, TestState>,
-}
+pub use crate::settings_state::SettingsUi;
 
 pub struct KadeeApp {
     pub focus: FocusHandle,
@@ -116,11 +101,14 @@ pub struct KadeeApp {
     pub name_input: Entity<TextInput>,
     pub key_input: Entity<TextInput>,
     pub url_input: Entity<TextInput>,
+    pub prov_name_input: Entity<TextInput>,
+    pub models_input: Entity<TextInput>,
     pub key_visible: bool,
+    /// home.json waits while Settings are open (Done or Cancel saves it).
+    save_pending: bool,
     /// The chat the composer's text belongs to.
     composer_key: String,
     ai_task: Option<Task<()>>,
-    test_task: Option<Task<()>>,
     _toast_task: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
@@ -145,8 +133,10 @@ impl KadeeApp {
         let composer = cx.new(|cx| TextInput::new(cx, "Ask anything…").multiline());
         let dialog_input = cx.new(|cx| TextInput::new(cx, "Name"));
         let name_input = cx.new(|cx| TextInput::new(cx, "Your name"));
-        let key_input = cx.new(|cx| TextInput::new(cx, "Paste the API key").masked(true));
+        let key_input = cx.new(|cx| TextInput::new(cx, "Paste your key").masked(true));
         let url_input = cx.new(|cx| TextInput::new(cx, "http://localhost:11434/v1"));
+        let prov_name_input = cx.new(|cx| TextInput::new(cx, "My provider"));
+        let models_input = cx.new(|cx| TextInput::new(cx, "model-one, model-two  (Test connection lists what the server has)"));
         name_input.update(cx, |i, cx| i.set_text(state.settings.display_name.clone(), cx));
 
         let subscriptions = vec![
@@ -174,18 +164,27 @@ impl KadeeApp {
             cx.subscribe_in(&name_input, window, |this, input, e: &InputEvent, _window, cx| {
                 if *e == InputEvent::Changed {
                     this.state.settings.display_name = input.read(cx).text().trim().to_string();
-                    this.save(cx);
                     cx.notify();
                 }
             }),
             cx.subscribe_in(&key_input, window, |this, _input, e: &InputEvent, _window, cx| {
-                if *e == InputEvent::Submit {
-                    this.save_provider_fields(cx);
+                if *e == InputEvent::Changed {
+                    this.form_fields_changed(cx);
                 }
             }),
             cx.subscribe_in(&url_input, window, |this, _input, e: &InputEvent, _window, cx| {
-                if *e == InputEvent::Submit {
-                    this.save_provider_fields(cx);
+                if *e == InputEvent::Changed {
+                    this.form_fields_changed(cx);
+                }
+            }),
+            cx.subscribe_in(&prov_name_input, window, |this, _input, e: &InputEvent, _window, cx| {
+                if *e == InputEvent::Changed {
+                    this.form_fields_changed(cx);
+                }
+            }),
+            cx.subscribe_in(&models_input, window, |this, _input, e: &InputEvent, _window, cx| {
+                if *e == InputEvent::Changed {
+                    this.form_fields_changed(cx);
                 }
             }),
         ];
@@ -223,10 +222,12 @@ impl KadeeApp {
             name_input,
             key_input,
             url_input,
+            prov_name_input,
+            models_input,
             key_visible: false,
+            save_pending: false,
             composer_key: String::new(),
             ai_task: None,
-            test_task: None,
             _toast_task: None,
             _subscriptions: subscriptions,
         };
@@ -245,6 +246,11 @@ impl KadeeApp {
     }
 
     pub fn save(&mut self, cx: &mut Context<Self>) {
+        if self.settings.is_some() {
+            self.save_pending = true;
+            return;
+        }
+        self.save_pending = false;
         if let Err(e) = self.store.save(&self.state) {
             self.notify(format!("Could not save settings: {e}"), cx);
         }
@@ -510,7 +516,7 @@ impl KadeeApp {
             self.tabs.push(path);
             self.active = self.tabs.len();
         }
-        self.settings = None;
+        self.close_settings(true, cx);
         self.sync_composer(window, cx);
         cx.notify();
     }
@@ -652,143 +658,6 @@ impl KadeeApp {
         self.close_menu(cx);
     }
 
-    // ---- Settings › AI providers -------------------------------------------------------------
-
-    pub fn ai_config(&self) -> AiConfig {
-        self.hub.config()
-    }
-
-    pub fn set_ai_config(&mut self, config: AiConfig, cx: &mut Context<Self>) {
-        if let Err(e) = self.hub.set_config(config) {
-            self.notify(format!("Could not save the AI settings: {e}"), cx);
-        }
-        cx.notify();
-    }
-
-    pub fn expand_provider(&mut self, id: Option<String>, cx: &mut Context<Self>) {
-        let config = self.ai_config();
-        if let Some(p) = id.as_deref().and_then(|id| config.provider(id)) {
-            let key = p.api_key.clone().unwrap_or_default();
-            let url = p.base_url.clone().unwrap_or_default();
-            let hint = p.kind.default_base_url().to_string();
-            self.key_input.update(cx, |i, cx| i.set_text(key, cx));
-            self.url_input.update(cx, |i, cx| {
-                i.set_text(url, cx);
-                i.set_placeholder(if hint.is_empty() { "https://…/v1".to_string() } else { hint }, cx);
-            });
-        }
-        self.key_visible = false;
-        self.key_input.update(cx, |i, cx| i.set_masked(true, cx));
-        if let Some(s) = self.settings.as_mut() {
-            s.expanded = id;
-        }
-        cx.notify();
-    }
-
-    /// Keep the key and endpoint typed for the open provider.
-    pub fn save_provider_fields(&mut self, cx: &mut Context<Self>) {
-        let Some(id) = self.settings.as_ref().and_then(|s| s.expanded.clone()) else { return };
-        let key = self.key_input.read(cx).text().trim().to_string();
-        let url = self.url_input.read(cx).text().trim().to_string();
-        let mut config = self.ai_config();
-        if let Some(p) = config.provider_mut(&id) {
-            p.api_key = (!key.is_empty()).then_some(key);
-            p.base_url = (!url.is_empty()).then_some(url);
-            if p.api_key.is_some() {
-                p.enabled = true;
-            }
-        }
-        self.set_ai_config(config, cx);
-        self.notify("Saved", cx);
-    }
-
-    /// Add a provider of this kind and open it for its key or endpoint.
-    pub fn add_provider(&mut self, kind: kd_ai::ProviderKind, cx: &mut Context<Self>) {
-        let mut config = self.ai_config();
-        let mut p = kd_ai::ProviderConfig::new(kind);
-        p.id = config.free_id(&p.id);
-        let id = p.id.clone();
-        config.providers.push(p);
-        self.set_ai_config(config, cx);
-        self.expand_provider(Some(id), cx);
-    }
-
-    pub fn toggle_provider(&mut self, id: &str, cx: &mut Context<Self>) {
-        let mut config = self.ai_config();
-        if let Some(p) = config.provider_mut(id) {
-            p.enabled = !p.enabled;
-        }
-        self.set_ai_config(config, cx);
-    }
-
-    pub fn set_default_model(&mut self, model: Option<ModelRef>, cx: &mut Context<Self>) {
-        let mut config = self.ai_config();
-        config.default_model = model;
-        self.set_ai_config(config, cx);
-    }
-
-    /// Ask the provider for its models, with the key and endpoint as typed.
-    pub fn test_provider(&mut self, id: &str, cx: &mut Context<Self>) {
-        let mut config = self.ai_config();
-        let Some(p) = config.provider_mut(id) else { return };
-        let key = self.key_input.read(cx).text().trim().to_string();
-        let url = self.url_input.read(cx).text().trim().to_string();
-        if self.settings.as_ref().and_then(|s| s.expanded.as_deref()) == Some(id) {
-            p.api_key = (!key.is_empty()).then_some(key).or(p.api_key.clone());
-            p.base_url = (!url.is_empty()).then_some(url).or(p.base_url.clone());
-        }
-        let p = p.clone();
-        let (tx, rx) = std::sync::mpsc::channel();
-        let probe = AiHub::in_memory(AiConfig { providers: vec![p.clone()], ..config });
-        let pid = p.id.clone();
-        std::thread::spawn(move || {
-            let r = probe.fetch_models(&pid).map(|list| (list, probe.account_note(&pid)));
-            let _ = tx.send(r);
-        });
-        if let Some(s) = self.settings.as_mut() {
-            s.tests.insert(p.id.clone(), TestState::Running(rx));
-        }
-        if self.test_task.is_none() {
-            self.test_task = Some(cx.spawn(async move |this, cx| {
-                loop {
-                    cx.background_executor().timer(Duration::from_millis(120)).await;
-                    let more = this
-                        .update(cx, |app, cx| {
-                            let Some(s) = app.settings.as_mut() else {
-                                app.test_task = None;
-                                return false;
-                            };
-                            let mut changed = false;
-                            for t in s.tests.values_mut() {
-                                if let TestState::Running(rx) = t
-                                    && let Ok(r) = rx.try_recv()
-                                {
-                                    changed = true;
-                                    *t = match r {
-                                        Ok((list, note)) => TestState::Ok(list.len(), note),
-                                        Err(e) => TestState::Err(e.to_string()),
-                                    };
-                                }
-                            }
-                            if changed {
-                                cx.notify();
-                            }
-                            let more = s.tests.values().any(|t| matches!(t, TestState::Running(_)));
-                            if !more {
-                                app.test_task = None;
-                            }
-                            more
-                        })
-                        .unwrap_or(false);
-                    if !more {
-                        break;
-                    }
-                }
-            }));
-        }
-        cx.notify();
-    }
-
     // ---- commands ----------------------------------------------------------------------------
 
     pub fn on_run_command(&mut self, action: &RunCommand, window: &mut Window, cx: &mut Context<Self>) {
@@ -803,8 +672,14 @@ impl KadeeApp {
         } else if self.dialog.is_some() {
             self.close_dialog(window, cx);
         } else if self.settings.is_some() {
-            self.settings = None;
-            cx.notify();
+            self.close_settings(false, cx);
+        }
+    }
+
+    /// A key on the window: while a shortcut is recorded it goes to the recording.
+    pub fn on_key_down(&mut self, e: &gpui::KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.is_recording() {
+            self.record_key(e, cx);
         }
     }
 
@@ -874,7 +749,7 @@ impl KadeeApp {
             Command::DeleteFolder(dir) => self.open_dialog(Dialog::DeleteFolder { dir }, window, cx),
             Command::ShowPage(Page::Ai) => {
                 self.active = 0;
-                self.settings = None;
+                self.close_settings(true, cx);
                 self.ai_pane = true;
                 self.sync_composer(window, cx);
                 self.composer.read(cx).focus(window);
@@ -882,13 +757,8 @@ impl KadeeApp {
             }
             Command::ShowPage(page) => self.show_page(page, window, cx),
             Command::OpenSettings(section) => {
-                self.active = 0;
-                match self.settings.as_mut() {
-                    Some(s) => s.section = section,
-                    None => self.settings = Some(SettingsUi { section, expanded: None, tests: HashMap::new() }),
-                }
+                self.open_settings(section, window, cx);
                 self.sync_composer(window, cx);
-                cx.notify();
             }
             Command::ToggleAiPane => {
                 self.ai_pane = !self.ai_pane;
@@ -921,8 +791,7 @@ impl KadeeApp {
                 if self.active > 0 {
                     self.close_tab(self.active, window, cx)
                 } else if self.settings.is_some() {
-                    self.settings = None;
-                    cx.notify();
+                    self.close_settings(true, cx);
                 }
             }
             Command::ReopenClosedTab => {
@@ -963,7 +832,7 @@ impl KadeeApp {
 
     fn show_page(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
         self.active = 0;
-        self.settings = None;
+        self.close_settings(true, cx);
         self.page = page;
         if page == Page::Folder {
             self.folder_docs = list_documents(&self.folder);

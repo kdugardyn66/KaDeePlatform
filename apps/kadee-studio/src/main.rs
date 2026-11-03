@@ -9,6 +9,7 @@
 mod app;
 mod assets;
 mod keys;
+mod settings_state;
 mod view;
 
 use gpui::{App, Application, Bounds, Menu, MenuItem, TitlebarOptions, WindowBounds, WindowOptions, prelude::*, px, size};
