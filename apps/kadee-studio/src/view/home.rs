@@ -159,7 +159,7 @@ fn craft_strip(app: &KadeeApp, width: Pixels, pal: &Palette, cx: &mut Context<Ka
         format!("{n} of {} installed on this computer", CRAFT_APPS.len())
     };
     let link_hover = pal.text;
-    let head = div().flex().items_center().justify_between().child(section_title("Crafting Apps", Some(sub), pal)).child(
+    let head = div().flex().items_center().justify_between().child(section_title("Apps", Some(sub), pal)).child(
         div()
             .id("craft-see-all")
             .text_size(px(14.5))
@@ -173,7 +173,7 @@ fn craft_strip(app: &KadeeApp, width: Pixels, pal: &Palette, cx: &mut Context<Ka
         div()
             .text_color(pal.text_muted)
             .text_size(px(14.0))
-            .child("Installed Crafting Apps appear here with their icons; click one to open it.")
+            .child("Installed apps appear here with their icons; click one to open it.")
             .into_any_element()
     } else {
         // the same tiles at every width: as many per row as fit, so the rows rearrange when the

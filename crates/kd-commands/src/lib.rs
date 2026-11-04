@@ -240,7 +240,7 @@ pub fn bindable_commands() -> Vec<(Command, String)> {
         (Command::ShowPage(Page::New), "Show New document".into()),
         (Command::ShowPage(Page::Recent), "Show Recent".into()),
         (Command::ShowPage(Page::Starred), "Show Starred".into()),
-        (Command::ShowPage(Page::CraftApps), "Show Crafting Apps".into()),
+        (Command::ShowPage(Page::CraftApps), "Show Apps".into()),
         (Command::ShowPage(Page::Ai), "Show KaDee AI".into()),
         (Command::ToggleAiPane, "Show or hide the KaDee AI pane".into()),
         (Command::ShowPage(Page::Folder), "Show the KadeeStudio folder".into()),

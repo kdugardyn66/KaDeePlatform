@@ -52,7 +52,7 @@ fn set_menus(cx: &mut App) {
                 MenuItem::separator(),
                 MenuItem::action("Recent", cmd(Command::ShowPage(Page::Recent))),
                 MenuItem::action("Starred", cmd(Command::ShowPage(Page::Starred))),
-                MenuItem::action("Crafting Apps", cmd(Command::ShowPage(Page::CraftApps))),
+                MenuItem::action("Apps", cmd(Command::ShowPage(Page::CraftApps))),
             ],
         },
         Menu {

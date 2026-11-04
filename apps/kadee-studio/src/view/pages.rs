@@ -97,81 +97,108 @@ fn new_row(
         })
 }
 
-pub fn craft_apps(app: &mut KadeeApp, cx: &mut Context<KadeeApp>) -> impl IntoElement {
+pub fn craft_apps(app: &mut KadeeApp, window: &mut gpui::Window, cx: &mut Context<KadeeApp>) -> impl IntoElement {
     let pal = Theme::palette(cx);
     let n = app.installed.len();
-    let mut list = div().flex().flex_col().rounded(px(12.0)).bg(pal.surface).border_1().border_color(pal.border).overflow_hidden();
+    let width = super::home::content_width(app, window);
+    let cols: u16 = if f32::from(width) > 900.0 { 3 } else { 2 };
+    let mut grid = div().grid().grid_cols(cols).gap(px(16.0)).w_full();
+    // room for text in a card, in characters (GPUI clips; the ellipsis is added here, as in 0.3.1)
+    let text_w = (f32::from(width) - 16.0 * (cols as f32 - 1.0)) / cols as f32 - 18.0 * 2.0 - 56.0 - 16.0;
+    let fit = |px_per_char: f32| ((text_w / px_per_char).floor() as usize).max(8);
     for (i, a) in CRAFT_APPS.iter().enumerate() {
         let found = app.installed_app(a.id).cloned();
-        let status = match &found {
-            Some(f) => format!("Installed{} · {}", f.version.as_deref().map(|v| format!(" · {v}")).unwrap_or_default(), f.source),
-            None => "Not installed".to_string(),
+        let (chip, fg, bg) = match &found {
+            Some(f) => (
+                f.version.as_deref().map(|v| format!("Installed · {v}")).unwrap_or_else(|| "Installed".into()),
+                pal.accent,
+                pal.accent_soft,
+            ),
+            None => ("Not installed".to_string(), pal.text_faint, pal.surface_hover),
         };
-        let exts = if a.extensions.is_empty() {
-            String::new()
-        } else {
-            a.extensions.iter().take(6).map(|e| format!(".{e}")).collect::<Vec<_>>().join(" ")
+        let exts = a.extensions.iter().map(|e| format!(".{e}")).collect::<Vec<_>>().join(" ");
+        let line = if exts.is_empty() { a.maker.to_string() } else { format!("{} · {exts}", a.maker) };
+        let line = kd_ui::truncate(&line, fit(6.6));
+        let purpose = kd_ui::truncate(a.purpose, fit(7.6));
+        let (hover_bg, accent) = (pal.surface_hover, pal.accent);
+        let tip = match &found {
+            Some(f) => format!("Open {} · {} · {}", a.name, f.source, f.location()),
+            None => format!("{} is not installed. Get it with the ArtCraft Launcher.", a.name),
         };
-        let action = match &found {
-            Some(_) => primary_button(("craft-open", i), "Open", &pal)
-                .on_click(on_cmd(Command::LaunchCraft(a.id.to_string()), cx))
-                .into_any_element(),
-            None => div().text_size(px(13.0)).text_color(pal.text_faint).child("—").into_any_element(),
-        };
-        list = list.child(
-            div()
-                .h(px(70.0))
-                .px(px(18.0))
-                .flex()
-                .items_center()
-                .gap(px(14.0))
-                .when(i > 0, |d| d.border_t_1().border_color(pal.border))
-                .child(craft_icon(a.id, a.badge, 42.0, &pal))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .child(
-                            div()
-                                .flex()
-                                .items_baseline()
-                                .gap(px(8.0))
-                                .child(div().text_size(px(15.5)).child(a.name))
-                                .child(div().text_size(px(12.5)).text_color(pal.text_faint).child(format!("{} · {}", a.purpose, a.maker))),
-                        )
-                        .child(
-                            div().text_size(px(12.5)).text_color(if found.is_some() { pal.success } else { pal.text_faint }).child(status),
-                        ),
-                )
-                .child(div().w(px(230.0)).text_size(px(12.5)).text_color(pal.text_faint).child(exts))
-                .child(div().w(px(80.0)).flex().justify_end().child(action)),
-        );
+        let mut card = div()
+            .id(("app-card", i))
+            .relative()
+            .h(px(112.0))
+            .px(px(18.0))
+            .flex()
+            .items_center()
+            .gap(px(16.0))
+            .rounded(px(12.0))
+            .bg(pal.surface)
+            .border_1()
+            .border_color(pal.border)
+            .tooltip(kd_ui::tooltip(tip))
+            .child(div().when(found.is_none(), |d| d.opacity(0.45)).child(craft_icon(a.id, a.badge, 56.0, &pal)))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(3.0))
+                    .child(div().pr(px(130.0)).text_size(px(17.0)).truncate().child(a.name))
+                    .child(div().text_size(px(14.0)).text_color(pal.text_muted).truncate().child(purpose))
+                    .child(div().mt(px(5.0)).text_size(px(12.5)).text_color(pal.text_faint).truncate().child(line)),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top(px(14.0))
+                    .right(px(14.0))
+                    .px(px(9.0))
+                    .py(px(2.0))
+                    .rounded(px(11.0))
+                    .bg(bg)
+                    .text_color(fg)
+                    .text_size(px(12.5))
+                    .child(chip),
+            );
+        if found.is_some() {
+            card = card
+                .cursor_pointer()
+                .hover(move |s| s.bg(hover_bg).border_color(accent))
+                .on_click(on_cmd(Command::LaunchCraft(a.id.to_string()), cx));
+        }
+        grid = grid.child(card);
     }
+    let link = |id: &'static str, label: &'static str, pal: &Palette| {
+        let hover = pal.text;
+        div().id(id).text_color(pal.accent).cursor_pointer().hover(move |s| s.text_color(hover)).child(label)
+    };
     content_column("craft-scroll", &pal).child(
         column()
             .child(page_title(
-                "Crafting Apps",
+                "Apps",
                 format!(
-                    "{n} of {} installed on this computer · they open on their own until Phase {}",
+                    "Open-source Rust apps from the ArtCraft team, plus SolidCraft from Tangency Labs and MdCraft. {n} of {} are installed on this computer; click one to open it. Their files already appear under All; KadeeStudio embeds them in Phase {}.",
                     CRAFT_APPS.len(),
                     kd_store::CRAFT_PHASE
                 ),
                 &pal,
             ))
+            .child(grid)
             .child(
                 div()
+                    .mt(px(24.0))
                     .flex()
-                    .gap(px(10.0))
-                    .mb(px(18.0))
-                    .child(
-                        primary_button("craft-launcher", "Get them with the ArtCraft launcher", &pal)
-                            .on_click(on_cmd(Command::OpenUrl(kd_store::LAUNCHER_REPO.into()), cx)),
-                    )
-                    .child(button("craft-again", "Look again", &pal).on_click(on_cmd(Command::Refresh, cx))),
-            )
-            .child(list),
+                    .items_center()
+                    .gap(px(8.0))
+                    .text_size(px(15.0))
+                    .child(div().text_color(pal.text_muted).child("Install or update them with the"))
+                    .child(link("craft-launcher", "ArtCraft Launcher", &pal).on_click(on_cmd(Command::OpenUrl(kd_store::LAUNCHER_REPO.into()), cx)))
+                    .child(div().text_color(pal.text_faint).child("·"))
+                    .child(link("craft-again", "Look again", &pal).on_click(on_cmd(Command::Refresh, cx))),
+            ),
     )
 }
 

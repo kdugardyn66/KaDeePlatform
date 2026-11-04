@@ -29,7 +29,7 @@ impl Render for KadeeApp {
             } else {
                 match self.page {
                     Page::New => pages::new_page(self, cx).into_any_element(),
-                    Page::CraftApps => pages::craft_apps(self, cx).into_any_element(),
+                    Page::CraftApps => pages::craft_apps(self, window, cx).into_any_element(),
                     _ => home::page(self, window, cx).into_any_element(),
                 }
             }

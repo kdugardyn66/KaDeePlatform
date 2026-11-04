@@ -13,7 +13,7 @@ The KaDee Platform has four layers (see the architecture diagram): native client
 | 0.7 | Slide decks | genoffice, ONLYOFFICE, deckcraft | — |
 | 0.8 | HTML page processor | genoffice | — |
 | 0.9 | Business Intelligence | Rust BI Platform plan | DuckDB, dashboards and reports |
-| later | CAD, Design, Effect, Fig, Film, Light, Photo, Solid, Sound, Texture | the Crafting Apps | kd-plugin (wasmtime) |
+| later | CAD, Design, Effect, Fig, Film, Light, Photo, Solid, Sound, Texture | the Apps (ArtCraft) | kd-plugin (wasmtime) |
 
 Running modes: **Solo, no server** (now) → **Team, docker compose** (kd-sync, kd-collab, kd-api, kd-auth, PostgreSQL, MinIO) → **Organisation, Kubernetes** (Helm chart).
 

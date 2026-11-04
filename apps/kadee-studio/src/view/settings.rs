@@ -952,11 +952,11 @@ fn about(app: &KadeeApp, pal: &Palette, cx: &mut Context<KadeeApp>) -> impl Into
                 .child(info("System", os))
                 .child(info("Renderer", if cfg!(target_os = "macos") { "GPUI · Metal".into() } else if cfg!(windows) { "GPUI · DirectX".into() } else { "GPUI · Vulkan".into() }))
                 .child(info("Settings", tilde(app.store.dir())))
-                .child(info("Crafting Apps", format!("{installed} ({} known)", CRAFT_APPS.len())))
+                .child(info("Apps", format!("{installed} ({} known)", CRAFT_APPS.len())))
                 .child(info("Licence", "MIT OR Apache-2.0".into())),
         )
         .child(div().text_size(px(13.0)).text_color(pal.text_muted).child(
-            "The start screen is ported from KadeeStudio 0.3.1; KaDee AI from its kadee-ai layer (after SolarOffice's). Icons in the style of Lucide (ISC). Crafting App icons by their makers.",
+            "The start screen is ported from KadeeStudio 0.3.1; KaDee AI from its kadee-ai layer (after SolarOffice's). Icons in the style of Lucide (ISC). App icons by their makers.",
         ))
         .child(
             div()

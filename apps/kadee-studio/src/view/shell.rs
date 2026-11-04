@@ -172,7 +172,7 @@ pub fn sidebar(app: &mut KadeeApp, _window: &mut Window, cx: &mut Context<KadeeA
                 .on_click(on_cmd(Command::ShowPage(Page::Starred), cx)),
         )
         .child(
-            nav_item("nav-craft", Icon::Grid, "Crafting Apps", Some(CRAFT_APPS.len()), on(Page::CraftApps), &pal)
+            nav_item("nav-craft", Icon::Grid, "Apps", Some(CRAFT_APPS.len()), on(Page::CraftApps), &pal)
                 .on_click(on_cmd(Command::ShowPage(Page::CraftApps), cx)),
         );
 
