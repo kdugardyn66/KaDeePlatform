@@ -25,6 +25,8 @@ use crate::editor::mono_family;
 pub enum PreviewEvent {
     /// Double-click on a block: show its source line (1-based).
     GoToLine(usize),
+    /// A click on a local file (an included file, a link to a file): open it.
+    OpenFile(PathBuf),
 }
 
 /// The document's colours (MdCraft's markdown.css).
@@ -409,6 +411,7 @@ impl R {
         let ranges = links.into_iter().map(|(r, _)| r).collect();
         let outline = self.outline.clone();
         let p = self.preview.clone();
+        let base = self.base_dir.clone();
         InteractiveText::new(self.id("link"), styled)
             .on_click(ranges, move |ix, _, cx| {
                 let url = &urls[ix];
@@ -417,6 +420,11 @@ impl R {
                     if let Some(h) = outline.iter().find(|h| slug(&h.text) == anchor) {
                         let line = h.line;
                         p.update(cx, |_, cx| cx.emit(PreviewEvent::GoToLine(line)));
+                    }
+                } else if !url.contains("://") && !url.starts_with("mailto:") {
+                    // a file next to the document
+                    if let Some(f) = resolve(base.as_deref(), url.trim_start_matches('<').trim_end_matches('>')) {
+                        p.update(cx, |_, cx| cx.emit(PreviewEvent::OpenFile(f)));
                     }
                 } else {
                     cx.open_url(url);
@@ -464,14 +472,15 @@ impl R {
             Block::Paragraph { inlines, line } => {
                 // a picture on its own line is shown as a picture
                 if let [Inline::Image { url, alt, .. }] = inlines.as_slice() {
-                    return Some(self.block(*line).mb(gap).child(self.image(url, alt)).into_any_element());
+                    let el = match md::media::kind(url) {
+                        Some(m) => self.media(url, alt, m),
+                        None => self.image(url, alt),
+                    };
+                    return Some(self.block(*line).mb(gap).child(el).into_any_element());
                 }
-                // @import "file": its contents
-                if let [Inline::Text(t, _)] = inlines.as_slice()
-                    && let Some(path) =
-                        t.trim().strip_prefix("@import").map(|r| r.trim().trim_start_matches('"')).map(|r| r.split('"').next().unwrap_or(r))
-                {
-                    let el = self.include(path, depth);
+                // @import "file": the file's icon and name, linked to it
+                if let Some(path) = md::media::import_of(inlines) {
+                    let el = self.file_card(path);
                     return Some(self.block(*line).mb(gap).child(el).into_any_element());
                 }
                 let text = self.inlines(inlines, col.fg, FontWeight::NORMAL, false);
@@ -604,6 +613,20 @@ impl R {
                 let t = text.trim();
                 if t.starts_with("<!--") || t.is_empty() {
                     return None;
+                }
+                // <video>, <audio>, a video <iframe>
+                if let Some((src, audio)) = md::media::html_media(t) {
+                    let m = md::media::kind(&src).or(if audio {
+                        Some(md::media::Media::Audio)
+                    } else if t.to_ascii_lowercase().starts_with("<video") {
+                        Some(md::media::Media::Video)
+                    } else {
+                        None
+                    });
+                    if let Some(m) = m {
+                        let el = self.media(&src, "", m);
+                        return Some(self.block(*line).mb(gap).child(el).into_any_element());
+                    }
                 }
                 // layout tags (<div class="cover">, </div>, <details> …) wrap Markdown: their
                 // content shows; the tags themselves do not
@@ -781,31 +804,234 @@ impl R {
         v
     }
 
-    /// `@import "file"`: a CSV file as a table, Markdown as its blocks, other text as code.
-    fn include(&mut self, path: &str, depth: usize) -> AnyElement {
+    /// A video or audio card: a click plays it in the system's player or the browser.
+    fn media(&mut self, url: &str, alt: &str, m: md::media::Media) -> AnyElement {
+        use md::media::Media;
         let col = self.col;
-        let note = |t: String| div().text_size(px(13.0)).text_color(col.muted).child(t).into_any_element();
-        let Some(file) = resolve(self.base_dir.as_deref(), path) else {
-            return note(format!("Included file not found: {path}"));
+        let online = m.service().is_some();
+        let path = (!online && !url.contains("://"))
+            .then(|| resolve(self.base_dir.as_deref(), url.trim_start_matches('<').trim_end_matches('>')))
+            .flatten();
+        let web = url.contains("://");
+        let missing = !online && !web && path.is_none();
+        let name = md::media::file_name(url);
+        let title = if !alt.trim().is_empty() {
+            alt.trim().to_string()
+        } else if online {
+            format!("{} video", m.service().unwrap_or("Online"))
+        } else {
+            name.clone()
         };
-        let Ok(text) = std::fs::read_to_string(&file) else {
-            return note(format!("Included file is not text: {path}"));
+        let watch = md::media::watch_url(&m, url);
+        let open = {
+            let path = path.clone();
+            move |_: &gpui::ClickEvent, _: &mut Window, cx: &mut App| match &path {
+                Some(p) => cx.open_with_system(p),
+                None => cx.open_url(&watch),
+            }
         };
-        if depth > 2 {
-            return note(format!("Included too deep: {path}"));
+        if m.is_audio() {
+            let note = icon_image(
+                "audio",
+                "<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'><circle cx='20' cy='20' r='20' fill='#945ecf'/><path d='M16 12 L28 9 L28 25' fill='none' stroke='#fff' stroke-width='2.4' stroke-linejoin='round'/><path d='M16 12 L16 28' stroke='#fff' stroke-width='2.4'/><circle cx='13' cy='28' r='3.6' fill='#fff'/><circle cx='25' cy='25' r='3.6' fill='#fff'/></svg>",
+            );
+            let sub = if missing {
+                format!("Not found: {url}")
+            } else if title == name {
+                "Audio · click to play".to_string()
+            } else {
+                format!("{name} · click to play")
+            };
+            return div()
+                .id(self.id("audio"))
+                .flex()
+                .items_center()
+                .gap(px(12.0))
+                .max_w(px(560.0))
+                .p(px(10.0))
+                .rounded(px(8.0))
+                .border_1()
+                .border_color(col.border)
+                .bg(col.subtle)
+                .when(!missing, |d| d.cursor_pointer().hover(|d| d.border_color(col.link)).on_click(open))
+                .child(img(note).size(px(40.0)).flex_none())
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .min_w_0()
+                        .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(14.0)).child(title))
+                        .child(div().text_size(px(12.0)).text_color(col.muted).child(sub)),
+                )
+                .into_any_element();
         }
-        let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-        let md_text = match ext.as_str() {
-            "csv" | "tsv" => md::review::csv_to_table(&text),
-            "md" | "markdown" | "mdd" | "mds" => text,
-            _ => format!("```{ext}\n{}\n```", text.trim_end()),
+        let thumb = match &m {
+            Media::YouTube(id) => Some(crate::media::ThumbSource::YouTube(id.clone())),
+            Media::Vimeo(id) => Some(crate::media::ThumbSource::Vimeo(id.clone())),
+            _ => path.clone().filter(|_| crate::media::has_ffmpeg()).map(crate::media::ThumbSource::Local),
         };
-        let parsed = md::parse(&md_text);
-        let saved = std::mem::replace(&mut self.line_offset, usize::MAX / 2);
-        let children = self.blocks(&parsed.blocks, depth + 1);
-        self.line_offset = saved;
-        last_flush(children).into_any_element()
+        let play = icon_image(
+            "play",
+            "<svg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'><circle cx='36' cy='36' r='34' fill='#000' fill-opacity='0.55' stroke='#fff' stroke-opacity='0.85' stroke-width='2.5'/><path d='M29 23 L51 36 L29 49 Z' fill='#fff'/></svg>",
+        );
+        let sub = if missing {
+            format!("Not found: {url}")
+        } else if let Some(service) = m.service() {
+            format!("{service} · click to watch in your browser")
+        } else if web {
+            "Click to watch in your browser".to_string()
+        } else if title == name {
+            "Video · click to play".to_string()
+        } else {
+            format!("{name} · click to play")
+        };
+        let w = 640.0 * (self.size / 16.0).max(0.75);
+        div()
+            .flex()
+            .justify_center()
+            .child(
+                div()
+                    .id(self.id("video"))
+                    .relative()
+                    .w_full()
+                    .max_w(px(w))
+                    .h(px(w * 9.0 / 16.0))
+                    .rounded(px(8.0))
+                    .overflow_hidden()
+                    .bg(rgb(0x16181d))
+                    .when(!missing, |d| d.cursor_pointer().on_click(open))
+                    .when_some(thumb, |d, src| {
+                        d.child(
+                            img(gpui::ImageSource::Custom(Arc::new(move |window: &mut Window, cx: &mut App| {
+                                window.use_asset::<crate::media::Thumb>(&src, cx).flatten().map(Ok)
+                            })))
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .size_full()
+                            .object_fit(ObjectFit::Cover),
+                        )
+                    })
+                    .child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .size_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(img(play).size(px(72.0))),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .bottom_0()
+                            .left_0()
+                            .right_0()
+                            .px(px(14.0))
+                            .py(px(9.0))
+                            .bg(gpui::hsla(0.0, 0.0, 0.0, 0.6))
+                            .text_color(gpui::white())
+                            .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(14.0)).overflow_hidden().child(title))
+                            .child(div().text_size(px(12.0)).opacity(0.8).child(sub)),
+                    ),
+            )
+            .into_any_element()
     }
+
+    /// `@import "file"`: the file's icon, name and kind; a click opens it.
+    fn file_card(&mut self, path: &str) -> AnyElement {
+        let col = self.col;
+        let file = resolve(self.base_dir.as_deref(), path.trim_start_matches('<').trim_end_matches('>'));
+        let ext = md::media::extension(path);
+        let name = md::media::file_name(path);
+        let kind = md::media::file_kind(path);
+        let color = match kind {
+            "PDF document" => "#d93025",
+            "Document" => "#2f5dd6",
+            "Spreadsheet" | "Table (CSV)" => "#19a979",
+            "Presentation" => "#e8743b",
+            "Picture" => "#945ecf",
+            "Video" | "Audio" => "#bf399e",
+            k if k.starts_with("Markdown") => "#1f2328",
+            _ => "#6c8893",
+        };
+        let label: String = ext.to_uppercase().chars().take(4).collect();
+        let icon = icon_image(
+            &format!("file-{label}-{color}"),
+            &format!(
+                "<svg xmlns='http://www.w3.org/2000/svg' width='36' height='44' viewBox='0 0 36 44'><path d='M2 2 H24 L34 12 V42 H2 Z' fill='{color}'/><path d='M24 2 V12 H34' fill='#fff' fill-opacity='0.35'/><text x='18' y='35' text-anchor='middle' font-family='Inter, Noto Sans, DejaVu Sans, Helvetica, Arial, sans-serif' font-size='{}' font-weight='700' fill='#fff'>{}</text></svg>",
+                if label.len() > 3 { 8.5 } else { 10.0 },
+                label
+            ),
+        );
+        let missing = file.is_none();
+        let folder = std::path::Path::new(path).parent().map(|p| p.to_string_lossy().to_string()).filter(|p| !p.is_empty());
+        let sub = if missing {
+            format!("Not found: {path}")
+        } else {
+            match folder {
+                Some(f) => format!("{kind} · {f}"),
+                None => kind.to_string(),
+            }
+        };
+        let p = self.preview.clone();
+        div()
+            .id(self.id("include"))
+            .flex()
+            .items_center()
+            .gap(px(12.0))
+            .max_w(px(560.0))
+            .py(px(8.0))
+            .pl(px(10.0))
+            .pr(px(16.0))
+            .rounded(px(8.0))
+            .border_1()
+            .border_color(col.border)
+            .when(!missing, |d| {
+                d.cursor_pointer().hover(|d| d.border_color(col.link).bg(col.subtle)).on_click(move |_, _, cx| {
+                    if let Some(f) = &file {
+                        let f = f.clone();
+                        p.update(cx, |_, cx| cx.emit(PreviewEvent::OpenFile(f)));
+                    }
+                })
+            })
+            .when(missing, |d| d.border_dashed().opacity(0.75))
+            .child(img(icon).w(px(36.0)).h(px(44.0)).flex_none())
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_size(px(14.0))
+                            .text_color(if missing { col.muted } else { col.link })
+                            .child(name),
+                    )
+                    .child(div().text_size(px(12.0)).text_color(col.muted).child(sub)),
+            )
+            .into_any_element()
+    }
+}
+
+/// Small pictures drawn from SVG once (play button, file icons).
+fn icon_image(key: &str, svg: &str) -> Arc<gpui::RenderImage> {
+    thread_local! {
+        static CACHE: RefCell<HashMap<String, Arc<gpui::RenderImage>>> = RefCell::new(HashMap::new());
+    }
+    CACHE.with(|c| {
+        if let Some(i) = c.borrow().get(key) {
+            return i.clone();
+        }
+        let i = crate::raster::svg_image(svg, 2.0).unwrap_or_else(|| {
+            crate::raster::svg_image("<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/>", 1.0).expect("empty")
+        });
+        c.borrow_mut().insert(key.to_string(), i.clone());
+        i
+    })
 }
 
 /// The colours of a slide: its background, text and headings.
@@ -1007,10 +1233,15 @@ pub fn slug(text: &str) -> String {
 }
 
 fn resolve(base: Option<&Path>, url: &str) -> Option<PathBuf> {
+    let url = url.trim().trim_start_matches('<').trim_end_matches('>');
+    let url = url.strip_prefix("file://").unwrap_or(url);
     let url = url.split(['#', '?']).next().unwrap_or(url);
-    let p = Path::new(url);
-    let p = if p.is_absolute() { p.to_path_buf() } else { base?.join(p) };
-    p.exists().then_some(p)
+    let decoded = url.replace("%20", " ");
+    [url, decoded.as_str()].into_iter().find_map(|u| {
+        let p = Path::new(u);
+        let p = if p.is_absolute() { p.to_path_buf() } else { base?.join(p) };
+        p.exists().then_some(p)
+    })
 }
 
 impl Render for Preview {

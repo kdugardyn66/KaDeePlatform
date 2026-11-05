@@ -91,7 +91,7 @@ pub const DIAGRAMS: &[Snippet] = &[
     },
     Snippet {
         id: "plantuml",
-        name: "PlantUML (needs Java)",
+        name: "PlantUML",
         lang: "plantuml",
         code: "@startuml\nactor Writer\nWriter -> mdcraft : open template\nmdcraft --> Writer : document\n@enduml",
     },

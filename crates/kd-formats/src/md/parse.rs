@@ -223,7 +223,14 @@ fn block<'a>(node: &'a AstNode<'a>) -> Option<Block> {
     Some(match &data.value {
         NodeValue::Heading(h) => Block::Heading { level: h.level, inlines: inlines(node), line },
         NodeValue::Paragraph => {
-            let ins = inlines(node);
+            let mut ins = inlines(node);
+            // `![…](…){width=640}`: the attributes after a picture or video are not text
+            if let [Inline::Image { .. }, Inline::Text(t, _)] = ins.as_slice()
+                && t.trim().starts_with('{')
+                && t.trim().ends_with('}')
+            {
+                ins.truncate(1);
+            }
             if let [Inline::Text(t, s)] = ins.as_slice()
                 && t.trim() == "[TOC]"
                 && *s == Style::default()
@@ -345,6 +352,11 @@ fn collect<'a>(node: &'a AstNode<'a>, style: &Style, out: &mut Vec<Inline>) {
             let tag = h.trim().to_ascii_lowercase();
             if tag.starts_with("<br") {
                 out.push(Inline::Break);
+            } else if let Some((src, audio)) = super::media::html_media(h) {
+                // <video>, <audio> and video <iframe>s are media like `![](clip.mp4)`
+                if audio || tag.starts_with("<video") || super::media::kind(&src).is_some() {
+                    out.push(Inline::Image { url: src, alt: String::new(), title: String::new() });
+                }
             }
             // <span style>, <u> … change the style of their siblings: see `collect_children`
         }
@@ -380,6 +392,13 @@ fn collect_children<'a>(node: &'a AstNode<'a>, style: &Style, out: &mut Vec<Inli
             Some(tag) if tag.starts_with("</") => {
                 if stack.len() > 1 {
                     stack.pop();
+                }
+            }
+            Some(tag) if super::media::html_media(&tag).is_some() => {
+                // media tags are not styles: their closing tag must not pop one
+                collect(c, &cur, out);
+                if !tag.ends_with("/>") {
+                    stack.push(cur);
                 }
             }
             Some(tag) if tag.starts_with('<') && !tag.ends_with("/>") && !tag.starts_with("<br") && !tag.starts_with("<!--") => {
@@ -550,6 +569,9 @@ mod tests {
         let Block::Paragraph { inlines, .. } = &p.blocks[0] else { panic!() };
         assert!(inlines.iter().any(|i| matches!(i, Inline::Text(t, s) if t == "site" && s.link.as_deref() == Some("https://x.y"))));
         assert!(inlines.iter().any(|i| matches!(i, Inline::Image { url, alt, .. } if url == "a.png" && alt == "alt")));
+        // attributes after a picture are dropped
+        let p = parse("![Clip](clip.mp4){width=640}\n");
+        assert!(matches!(&p.blocks[0], Block::Paragraph { inlines, .. } if inlines.len() == 1));
         assert!(inlines.iter().any(|i| matches!(i, Inline::Math { text, display: false } if text == "x^2")));
         assert!(inlines.iter().any(|i| matches!(i, Inline::Text(t, _) if t.contains('🚀'))));
     }

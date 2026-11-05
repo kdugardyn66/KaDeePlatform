@@ -155,6 +155,15 @@ impl MarkdownView {
                     let line = *line;
                     this.editor.update(cx, |ed, cx| ed.go_to_line(line, window, cx));
                 }
+                PreviewEvent::OpenFile(path) => {
+                    // Markdown opens in a tab here, anything else in its own app
+                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+                    if matches!(ext.as_str(), "md" | "markdown" | "mdd" | "mds" | "mdp") {
+                        cx.emit(MarkdownEvent::OpenPath(path.clone()));
+                    } else {
+                        cx.open_with_system(path);
+                    }
+                }
             }),
             cx.subscribe_in(&search, window, |this, input, e: &InputEvent, window, cx| match e {
                 InputEvent::Changed => cx.notify(),

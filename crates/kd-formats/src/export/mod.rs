@@ -94,7 +94,9 @@ pub(crate) struct SlideDoc {
 impl Doc {
     fn new(input: &Input) -> Doc {
         let text = &input.text;
-        let parsed = md::parse(text);
+        let mut parsed = md::parse(text);
+        // videos, audio and included files: links with their name
+        md::media::as_links(&mut parsed.blocks);
         let front = parsed.front_matter.clone();
         let get = |k: &str| front.iter().find(|(key, _)| key == k).map(|(_, v)| v.clone());
         let title = get("title").or_else(|| md::outline(&parsed).first().map(|h| h.text.clone())).unwrap_or_else(|| "Document".into());
@@ -104,8 +106,10 @@ impl Doc {
             .iter()
             .map(|s| {
                 let (content, notes) = s.content_and_notes(text);
+                let mut parsed = md::parse(content);
+                md::media::as_links(&mut parsed.blocks);
                 SlideDoc {
-                    parsed: md::parse(content),
+                    parsed,
                     notes: notes.map(str::to_string),
                     class: s.class().to_string(),
                     background: s.attr("data-background-color").map(str::to_string),

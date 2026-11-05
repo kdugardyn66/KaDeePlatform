@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 use comrak::nodes::{NodeHtmlBlock, NodeValue};
 use comrak::{Anchorizer, Arena, parse_document};
 
-use super::{diagram, edit, library, math, parse, slides};
+use super::{diagram, edit, library, math, media, parse, slides};
 
 const MARKDOWN_CSS: &str = include_str!("../../assets/markdown.css");
 
@@ -29,6 +29,16 @@ body { margin: 0; background: var(--page-bg, #f3f4f6); }
 .markdown-body .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: .85em; background: #e5e7eb; }
 .markdown-body .badge.green { background: #dcfce7; } .markdown-body .badge.amber { background: #fef3c7; } .markdown-body .badge.red { background: #fee2e2; }
 .markdown-body .right { text-align: right; } .markdown-body .center { text-align: center; } .markdown-body .muted { color: var(--fg-muted); } .markdown-body .small { font-size: .85em; }
+.markdown-body video, .markdown-body iframe { max-width: 100%; }
+.markdown-body video.media { display: block; width: 100%; max-width: 720px; margin: 0 auto 16px; border-radius: 8px; background: #000; }
+.markdown-body audio.media { display: block; width: 100%; max-width: 560px; margin: 0 auto 16px; }
+.markdown-body .media.online { display: block; position: relative; width: 100%; max-width: 720px; aspect-ratio: 16 / 9; margin: 0 auto 16px; }
+.markdown-body .media.online iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; border-radius: 8px; }
+.markdown-body a.file-link { display: inline-flex; align-items: center; gap: 12px; padding: 10px 16px 10px 10px; border: 1px solid var(--border); border-radius: 8px; text-decoration: none; color: inherit; }
+.markdown-body a.file-link:hover { background: rgba(127,127,127,.08); }
+.markdown-body a.file-link small { color: var(--fg-muted); }
+.markdown-body .file-icon { display: inline-flex; align-items: flex-end; justify-content: center; width: 34px; height: 42px; padding-bottom: 6px; box-sizing: border-box; border-radius: 4px; background: #2f5dd6; color: #fff; font: 700 9px/1 sans-serif; clip-path: polygon(0 0, 70% 0, 100% 22%, 100% 100%, 0 100%); }
+@media print { .markdown-body .media.online, .markdown-body video.media, .markdown-body audio.media { display: none; } }
 .watermark { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; font: 700 120px/1 sans-serif; color: rgba(160,160,160,.18); transform: rotate(-30deg); z-index: 5; }
 .deck section.slide { box-sizing: border-box; width: min(960px, 100%); aspect-ratio: 16 / 9; margin: 24px auto 8px; padding: 40px 56px; border-radius: 6px; box-shadow: 0 1px 6px rgba(0,0,0,.15); display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
 .deck section.slide.title, .deck section.slide.section, .deck section.slide.end, .deck section.slide.stat, .deck section.slide.quote { text-align: center; }
@@ -63,6 +73,21 @@ fn fragment(md: &str, opts: &HtmlOptions) -> String {
         let t = line.trim();
         if t.starts_with("<!--") && t.contains("pagebreak") {
             src.push_str("<div class=\"page-break\"></div>\n");
+        } else if t.starts_with("![") && t.ends_with('}') && t.contains("){") {
+            // `![…](…){width=640}`: drop the attributes
+            let cut = t.rfind("){").map(|p| p + 1).unwrap_or(t.len());
+            src.push_str(&t[..cut]);
+            src.push('\n');
+        } else if let Some(path) = media::import_path(t) {
+            // an included file: its icon and name, linked to it
+            let _ = writeln!(
+                src,
+                "<p class=\"include\"><a class=\"file-link\" href=\"{}\"><span class=\"file-icon\">{}</span><span><b>{}</b><br><small>{}</small></span></a></p>\n",
+                esc(path),
+                esc(&media::extension(path).to_uppercase()),
+                esc(&media::file_name(path)),
+                media::file_kind(path)
+            );
         } else {
             src.push_str(line);
         }
@@ -72,11 +97,23 @@ fn fragment(md: &str, opts: &HtmlOptions) -> String {
     o.render.r#unsafe = true;
     let arena = Arena::new();
     let root = parse_document(&arena, &src, &o);
-    for node in root.descendants() {
+    for node in root.descendants().collect::<Vec<_>>() {
         let mut data = node.data.borrow_mut();
         let replacement = match &data.value {
             NodeValue::CodeBlock(cb) => diagram::render(&cb.info, &cb.literal, opts.dark).map(|svg| {
                 NodeValue::HtmlBlock(NodeHtmlBlock { block_type: 6, literal: format!("<figure class=\"diagram\">{}</figure>\n", svg.svg) })
+            }),
+            NodeValue::Image(link) => media::kind(&link.url).map(|m| {
+                let url = link.url.trim_start_matches('<').trim_end_matches('>').to_string();
+                NodeValue::HtmlInline(match media::embed_url(&m) {
+                    Some(embed) => format!(
+                        "<span class=\"media video online\"><iframe src=\"{}\" title=\"{}\" allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture\" allowfullscreen></iframe></span>",
+                        esc(&embed),
+                        esc(&link.title)
+                    ),
+                    None if m.is_audio() => format!("<audio class=\"media audio\" controls preload=\"metadata\" src=\"{}\"></audio>", esc(&url)),
+                    None => format!("<video class=\"media video\" controls preload=\"metadata\" src=\"{}\"></video>", esc(&url)),
+                })
             }),
             NodeValue::Math(m) => {
                 let u = esc(&math::to_unicode(&m.literal));
@@ -89,7 +126,14 @@ fn fragment(md: &str, opts: &HtmlOptions) -> String {
             _ => None,
         };
         if let Some(r) = replacement {
+            let media = matches!(data.value, NodeValue::Image(_));
             data.value = r;
+            drop(data);
+            if media {
+                for c in node.children().collect::<Vec<_>>() {
+                    c.detach();
+                }
+            }
         }
     }
     let mut html = String::new();

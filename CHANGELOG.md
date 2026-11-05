@@ -28,7 +28,7 @@ Kadee Markdown: MdCraft rebuilt natively in GPUI and opened in KadeeStudio's tab
 - **Print and Export as PDF** through the browser (the page opens with the print window; *Save as PDF* there), **Export as web page (HTML)** with MdCraft's styles, the theme, diagrams as SVG and page setup, and **Copy as formatted text** (HTML).
 - **Review › Check accessibility** (skipped heading levels, pictures without alternative text, vague link text, tables without headers; click an issue to go to it); **Help › Keyboard shortcuts**; **Markdown guide** (the Welcome template as a new document).
 - **View**: drag the divider between editor and preview (double-click resets), Page width.
-- Not yet: spelling, KaTeX/MathJax-quality math, running code chunks, the remaining Mermaid diagram kinds (class, state, ER, mind map, timeline, journey, quadrant, git graph), Graphviz, PlantUML and WaveDrom.
+- Not yet: spelling, KaTeX/MathJax-quality math, running code chunks.
 
 **File ribbon and native converters**
 
@@ -40,6 +40,14 @@ Kadee Markdown: MdCraft rebuilt natively in GPUI and opened in KadeeStudio's tab
 - **Export ›** Webpage (HTML).
 - **Converters written in Rust** (`kd-formats::export`), no LibreOffice or browser needed: Word and OpenDocument text with headings, inline styles, links, lists, quotes, code, tables, pictures, diagrams and charts as pictures, page breaks, paper size, margins and fonts; PowerPoint and OpenDocument presentations with one slide per `---` (or per H1/H2 heading), titles, bullets, tables, pictures and speaker notes; PDF with its own layout, bookmarks-ready headings, links, pictures, page numbers and watermark.
 - `.mdp` is accepted as an alternative extension for slide deck templates.
+
+**All diagram kinds, video and included files**
+
+- **Every diagram kind is drawn natively** (preview, Word, OpenDocument, PowerPoint, PDF and HTML): Mermaid class, state, entity relationship, mind map, timeline, user journey, quadrant and git graph diagrams join flowcharts, sequence, pie and Gantt; **Graphviz (DOT)**, **PlantUML** (sequence, class, mind map) and **WaveDrom** timing diagrams — no Java, Graphviz or browser needed. Box-and-arrow diagrams route long edges around other boxes, spread parallel edges apart and keep their labels in view.
+- **Videos show in the preview** as a card with a play button: local files (`![Intro](media/intro.mp4)`, `<video src>`) show a frame of the video when ffmpeg is installed and play in the system's video player; YouTube and Vimeo links show the video's picture and open in the browser. **Audio** (`.mp3`, `.wav`, `.m4a` …) shows as a card that plays in the system player. Attributes such as `{width=640}` after a video or picture are ignored.
+- **Exports**: the web page (HTML) embeds real video and audio players (YouTube and Vimeo as embedded players); Word, OpenDocument, PowerPoint and PDF get a link with the video's name.
+- **Include file** (`@import "file"`) now shows the file's **icon, name and kind, linked to the file** instead of its contents: Markdown files open in a new tab, other files in their own app; a missing file says *Not found*. Exports show the same link. Links to local files in the text open the same way.
+- The preview's message for code it cannot draw now names the kind and says why.
 
 ## 0.1.0 — 2026-11-03
 

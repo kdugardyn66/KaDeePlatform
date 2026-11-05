@@ -4,6 +4,7 @@
 pub mod commands;
 pub mod editor;
 pub mod icons;
+pub mod media;
 pub mod preview;
 pub mod raster;
 pub mod ribbon;

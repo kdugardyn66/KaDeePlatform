@@ -1,7 +1,12 @@
 //! Diagrams and charts drawn natively, as SVG: Chart.js charts (bar, line, pie, doughnut,
-//! radar), charts from CSV tables, simple Vega-Lite charts, and Mermaid flowcharts, pie
-//! charts, sequence diagrams and Gantt charts. Other diagram kinds return `None` (the preview
-//! then shows their source).
+//! radar), charts from CSV tables, simple Vega-Lite charts; Mermaid flowcharts, pie charts,
+//! sequence, class, state and entity relationship diagrams, Gantt charts, mind maps, timelines,
+//! user journeys, quadrant charts and git graphs; Graphviz (DOT); PlantUML sequence, class and
+//! mind map diagrams; WaveDrom timing diagrams. Other kinds return `None` (the preview then
+//! shows their source).
+
+mod graph;
+mod kinds;
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -44,6 +49,9 @@ pub fn render(lang: &str, code: &str, dark: bool) -> Option<Svg> {
         "vega-lite" | "vega" => vega_lite(code),
         "csv" if lang.contains("chart=") => csv_chart(lang, code),
         "mermaid" => return mermaid(code, dark),
+        "dot" | "graphviz" => return graph::dot(code, dark),
+        "plantuml" | "puml" => return kinds::plantuml(code, dark),
+        "wavedrom" => return kinds::wavedrom(code, dark),
         _ => None,
     }?;
     Some(draw_chart(&chart, dark))
@@ -56,19 +64,51 @@ pub fn supported(lang: &str, code: &str) -> bool {
     match first.as_str() {
         "chart" | "chartjs" | "vega-lite" | "vega" => true,
         "csv" => lang.contains("chart="),
-        "mermaid" => matches!(mermaid_kind(code).as_str(), "flowchart" | "graph" | "pie" | "sequenceDiagram" | "gantt"),
+        "dot" | "graphviz" | "plantuml" | "puml" | "wavedrom" => true,
+        "mermaid" => MERMAID_KINDS.contains(&mermaid_kind(code).as_str()),
         _ => false,
     }
 }
 
+/// The Mermaid diagram kinds that are drawn.
+const MERMAID_KINDS: [&str; 15] = [
+    "flowchart",
+    "graph",
+    "pie",
+    "sequenceDiagram",
+    "gantt",
+    "classDiagram",
+    "classDiagram-v2",
+    "stateDiagram",
+    "stateDiagram-v2",
+    "erDiagram",
+    "mindmap",
+    "timeline",
+    "journey",
+    "quadrantChart",
+    "gitGraph",
+];
+
+/// A Mermaid block's lines without front matter (`---` … `---`), comments and blank lines.
+fn mermaid_lines(code: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut front = false;
+    for (i, l) in code.lines().map(str::trim).enumerate() {
+        if l == "---" && (i == 0 || front) {
+            front = !front;
+            continue;
+        }
+        if front || l.is_empty() || l.starts_with("%%") {
+            continue;
+        }
+        out.push(l);
+    }
+    out
+}
+
 /// The diagram keyword on a Mermaid block's first line (`classDiagram`, `flowchart` …).
 pub fn mermaid_kind(code: &str) -> String {
-    code.lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty() && !l.starts_with("%%") && *l != "---")
-        .and_then(|l| l.split_whitespace().next())
-        .unwrap_or("")
-        .to_string()
+    mermaid_lines(code).first().and_then(|l| l.split_whitespace().next()).unwrap_or("").to_string()
 }
 
 // ---- lenient JSON (Chart.js specs are JavaScript objects) ------------------------------------
@@ -671,11 +711,19 @@ fn legend(s: &mut String, c: &Chart, w: f32, y: f32, ink: &Ink) {
 // ---- Mermaid -----------------------------------------------------------------------------------
 
 fn mermaid(code: &str, dark: bool) -> Option<Svg> {
-    let lines: Vec<&str> = code.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with("%%")).collect();
+    let lines = mermaid_lines(code);
     let first = *lines.first()?;
     let kw = first.split_whitespace().next().unwrap_or("");
     match kw {
-        "flowchart" | "graph" => flowchart(&lines, dark),
+        "flowchart" | "graph" => graph::flowchart(&lines, dark),
+        "stateDiagram" | "stateDiagram-v2" => graph::state(&lines, dark),
+        "classDiagram" | "classDiagram-v2" => graph::class(&lines, dark, false),
+        "erDiagram" => graph::er(&lines, dark),
+        "mindmap" => kinds::mindmap_mermaid(&lines, code, dark),
+        "timeline" => kinds::timeline(&lines, dark),
+        "journey" => kinds::journey(&lines, dark),
+        "quadrantChart" => kinds::quadrant(&lines, dark),
+        "gitGraph" => kinds::git(&lines, dark),
         "pie" => {
             let head = first;
             let title = head.find("title").map(|i| head[i + 5..].trim().to_string());
@@ -706,367 +754,6 @@ fn mermaid(code: &str, dark: bool) -> Option<Svg> {
         "gantt" => gantt(&lines, dark),
         _ => None,
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Shape {
-    Rect,
-    Round,
-    Stadium,
-    Cylinder,
-    Diamond,
-    Circle,
-    Hexagon,
-}
-
-#[derive(Debug, Clone)]
-struct Node {
-    label: String,
-    shape: Shape,
-}
-
-#[derive(Debug, Clone)]
-struct EdgeD {
-    from: usize,
-    to: usize,
-    label: Option<String>,
-    dotted: bool,
-    arrow: bool,
-}
-
-/// `A[Text]` → (id, label, shape) and the rest of the string.
-/// A node: its id, its label and shape when given, and the rest of the line.
-type NodeParse<'a> = (String, Option<(String, Shape)>, &'a str);
-
-fn parse_node(s: &str) -> Option<NodeParse<'_>> {
-    let s = s.trim_start();
-    let id_end = s.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '-' && false)).unwrap_or(s.len());
-    if id_end == 0 {
-        return None;
-    }
-    let id = s[..id_end].to_string();
-    let rest = &s[id_end..];
-    let shapes: [(&str, &str, Shape); 9] = [
-        ("([", "])", Shape::Stadium),
-        ("[(", ")]", Shape::Cylinder),
-        ("((", "))", Shape::Circle),
-        ("{{", "}}", Shape::Hexagon),
-        ("[/", "/]", Shape::Rect),
-        ("[", "]", Shape::Rect),
-        ("(", ")", Shape::Round),
-        ("{", "}", Shape::Diamond),
-        (">", "]", Shape::Rect),
-    ];
-    for (open, close, shape) in shapes {
-        if let Some(r) = rest.strip_prefix(open)
-            && let Some(e) = r.find(close)
-        {
-            let label = r[..e].trim().trim_matches('"').to_string();
-            return Some((id, Some((label, shape)), &r[e + close.len()..]));
-        }
-    }
-    Some((id, None, rest))
-}
-
-/// The link at the start of `s`: (label, dotted, arrow) and the rest.
-fn parse_link(s: &str) -> Option<(Option<String>, bool, bool, &str)> {
-    let s = s.trim_start();
-    // A -- text --> B
-    for (open, close, dotted) in [("-- ", "-->", false), ("-. ", ".->", true), ("== ", "==>", false)] {
-        if let Some(r) = s.strip_prefix(open)
-            && let Some(e) = r.find(close)
-        {
-            return Some((Some(r[..e].trim().to_string()), dotted, true, &r[e + close.len()..]));
-        }
-    }
-    for (tok, dotted, arrow) in [
-        ("-.->", true, true),
-        ("-.-", true, false),
-        ("==>", false, true),
-        ("-->", false, true),
-        ("---", false, false),
-        ("--o", false, true),
-        ("--x", false, true),
-    ] {
-        if let Some(r) = s.strip_prefix(tok) {
-            let r = r.trim_start();
-            if let Some(r2) = r.strip_prefix('|')
-                && let Some(e) = r2.find('|')
-            {
-                return Some((Some(r2[..e].trim().to_string()), dotted, arrow, &r2[e + 1..]));
-            }
-            return Some((None, dotted, arrow, r));
-        }
-    }
-    None
-}
-
-fn flowchart(lines: &[&str], dark: bool) -> Option<Svg> {
-    let ink = ink(dark);
-    let dir = lines[0].split_whitespace().nth(1).unwrap_or("TD").to_uppercase();
-    let horizontal = dir == "LR" || dir == "RL";
-    let mut nodes: Vec<Node> = Vec::new();
-    let mut index: HashMap<String, usize> = HashMap::new();
-    let mut edges: Vec<EdgeD> = Vec::new();
-    let mut node = |id: String, def: Option<(String, Shape)>, nodes: &mut Vec<Node>| -> usize {
-        let i = *index.entry(id.clone()).or_insert_with(|| {
-            nodes.push(Node { label: id.clone(), shape: Shape::Rect });
-            nodes.len() - 1
-        });
-        if let Some((label, shape)) = def {
-            nodes[i].label = label;
-            nodes[i].shape = shape;
-        }
-        i
-    };
-    for l in &lines[1..] {
-        let kw = l.split_whitespace().next().unwrap_or("");
-        if matches!(kw, "classDef" | "class" | "style" | "linkStyle" | "click" | "subgraph" | "end" | "direction") {
-            continue;
-        }
-        for stmt in l.split(';') {
-            let Some((id, def, mut rest)) = parse_node(stmt) else { continue };
-            let mut prev = node(id, def, &mut nodes);
-            while let Some((label, dotted, arrow, r)) = parse_link(rest) {
-                // `A --> B & C`
-                let mut targets = Vec::new();
-                let mut r = r;
-                while let Some((id, def, r2)) = parse_node(r) {
-                    targets.push(node(id, def, &mut nodes));
-                    r = r2.trim_start();
-                    if let Some(r3) = r.strip_prefix('&') {
-                        r = r3;
-                    } else {
-                        break;
-                    }
-                }
-                for t in &targets {
-                    edges.push(EdgeD { from: prev, to: *t, label: label.clone(), dotted, arrow });
-                }
-                match targets.last() {
-                    Some(t) => prev = *t,
-                    None => break,
-                }
-                rest = r;
-            }
-        }
-    }
-    if nodes.is_empty() {
-        return None;
-    }
-    // layers: longest path over the edges that do not close a cycle
-    let n = nodes.len();
-    let mut back = vec![false; edges.len()];
-    {
-        let mut state = vec![0u8; n];
-        fn dfs(v: usize, edges: &[EdgeD], state: &mut [u8], back: &mut [bool]) {
-            state[v] = 1;
-            for (k, e) in edges.iter().enumerate() {
-                if e.from != v {
-                    continue;
-                }
-                match state[e.to] {
-                    0 => dfs(e.to, edges, state, back),
-                    1 => back[k] = true,
-                    _ => {}
-                }
-            }
-            state[v] = 2;
-        }
-        for v in 0..n {
-            if state[v] == 0 {
-                dfs(v, &edges, &mut state, &mut back);
-            }
-        }
-    }
-    let mut layer = vec![0usize; n];
-    for _ in 0..n {
-        let mut changed = false;
-        for (k, e) in edges.iter().enumerate() {
-            if !back[k] && e.from != e.to && layer[e.to] < layer[e.from] + 1 {
-                layer[e.to] = layer[e.from] + 1;
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
-    let layers = layer.iter().max().copied().unwrap_or(0) + 1;
-    let mut rows: Vec<Vec<usize>> = vec![Vec::new(); layers];
-    for v in 0..n {
-        rows[layer[v]].push(v);
-    }
-    // order by the average position of the parents (two sweeps)
-    for _ in 0..2 {
-        for li in 1..layers {
-            let pos: HashMap<usize, f32> = rows[li - 1].iter().enumerate().map(|(i, v)| (*v, i as f32)).collect();
-            let mut keyed: Vec<(f32, usize)> = rows[li]
-                .iter()
-                .enumerate()
-                .map(|(i, v)| {
-                    let ps: Vec<f32> = edges.iter().filter(|e| e.to == *v).filter_map(|e| pos.get(&e.from).copied()).collect();
-                    (if ps.is_empty() { i as f32 } else { ps.iter().sum::<f32>() / ps.len() as f32 }, *v)
-                })
-                .collect();
-            keyed.sort_by(|a, b| a.0.total_cmp(&b.0));
-            rows[li] = keyed.into_iter().map(|(_, v)| v).collect();
-        }
-    }
-    // sizes
-    let fs = 13.0;
-    let size = |v: &Node| -> (f32, f32) {
-        let tw = text_w(&v.label, fs).max(24.0);
-        match v.shape {
-            Shape::Diamond => (tw + 40.0, 56.0f32.max(tw * 0.45 + 30.0)),
-            Shape::Circle => {
-                let d = tw + 24.0;
-                (d, d)
-            }
-            Shape::Cylinder => (tw + 28.0, 50.0),
-            _ => (tw + 28.0, 40.0),
-        }
-    };
-    let sizes: Vec<(f32, f32)> = nodes.iter().map(size).collect();
-    let (gap_main, gap_cross) = if horizontal { (70.0, 26.0) } else { (56.0, 30.0) };
-    // main axis: layers; cross axis: nodes in a layer
-    let layer_main: Vec<f32> =
-        rows.iter().map(|r| r.iter().map(|v| if horizontal { sizes[*v].0 } else { sizes[*v].1 }).fold(0.0, f32::max)).collect();
-    let layer_cross: Vec<f32> = rows
-        .iter()
-        .map(|r| {
-            r.iter().map(|v| if horizontal { sizes[*v].1 } else { sizes[*v].0 }).sum::<f32>()
-                + gap_cross * (r.len().saturating_sub(1)) as f32
-        })
-        .collect();
-    let cross_total = layer_cross.iter().copied().fold(0.0, f32::max);
-    let mut center = vec![(0.0f32, 0.0f32); n];
-    let pad = 16.0;
-    let mut main = pad;
-    for (li, r) in rows.iter().enumerate() {
-        let mut cross = pad + (cross_total - layer_cross[li]) / 2.0;
-        for v in r {
-            let (w, h) = sizes[*v];
-            let (cm, cc) =
-                if horizontal { (main + layer_main[li] / 2.0, cross + h / 2.0) } else { (cross + w / 2.0, main + layer_main[li] / 2.0) };
-            center[*v] = (cm, cc);
-            cross += if horizontal { h } else { w } + gap_cross;
-        }
-        main += layer_main[li] + gap_main;
-    }
-    let main_total = main - gap_main + pad;
-    let (w, h) = if horizontal { (main_total, cross_total + pad * 2.0) } else { (cross_total + pad * 2.0, main_total) };
-    let mut s = header(w, h, &ink);
-    let _ = write!(
-        s,
-        "<defs><marker id=\"ah\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"7\" markerHeight=\"7\" orient=\"auto-start-reverse\"><path d=\"M0,0 L10,5 L0,10 z\" fill=\"{}\"/></marker></defs>",
-        ink.muted
-    );
-    // where a line from the centre towards (tx, ty) leaves a node's box
-    let border = |v: usize, tx: f32, ty: f32| -> (f32, f32) {
-        let (cx, cy) = center[v];
-        let (w, h) = sizes[v];
-        let (dx, dy) = (tx - cx, ty - cy);
-        if dx == 0.0 && dy == 0.0 {
-            return (cx, cy);
-        }
-        let sx = if dx != 0.0 { (w / 2.0) / dx.abs() } else { f32::MAX };
-        let sy = if dy != 0.0 { (h / 2.0) / dy.abs() } else { f32::MAX };
-        let k = sx.min(sy);
-        (cx + dx * k, cy + dy * k)
-    };
-    for e in &edges {
-        let (tx, ty) = center[e.to];
-        let (fx, fy) = center[e.from];
-        let (ax, ay) = border(e.from, tx, ty);
-        let (bx, by) = border(e.to, fx, fy);
-        let dash = if e.dotted { " stroke-dasharray=\"5 4\"" } else { "" };
-        let mk = if e.arrow { " marker-end=\"url(#ah)\"" } else { "" };
-        let _ = write!(
-            s,
-            "<line x1=\"{ax:.1}\" y1=\"{ay:.1}\" x2=\"{bx:.1}\" y2=\"{by:.1}\" stroke=\"{}\" stroke-width=\"1.5\"{dash}{mk}/>",
-            ink.muted
-        );
-        if let Some(l) = &e.label {
-            let (mx, my) = ((ax + bx) / 2.0, (ay + by) / 2.0);
-            let lw = text_w(l, 11.0) + 10.0;
-            let _ = write!(
-                s,
-                "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{lw:.1}\" height=\"18\" rx=\"4\" fill=\"{}\"/>",
-                mx - lw / 2.0,
-                my - 9.0,
-                ink.bg
-            );
-            let _ = write!(
-                s,
-                "<text x=\"{mx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-size=\"11\" fill=\"{}\">{}</text>",
-                my + 4.0,
-                ink.muted,
-                esc(l)
-            );
-        }
-    }
-    for (v, nd) in nodes.iter().enumerate() {
-        let (cx, cy) = center[v];
-        let (w, h) = sizes[v];
-        let (x, y) = (cx - w / 2.0, cy - h / 2.0);
-        let st = format!("fill=\"{}\" stroke=\"{}\" stroke-width=\"1.5\"", ink.node, ink.node_border);
-        match nd.shape {
-            Shape::Rect => {
-                let _ = write!(s, "<rect x=\"{x:.1}\" y=\"{y:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" rx=\"3\" {st}/>");
-            }
-            Shape::Round => {
-                let _ = write!(s, "<rect x=\"{x:.1}\" y=\"{y:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" rx=\"10\" {st}/>");
-            }
-            Shape::Stadium => {
-                let _ = write!(s, "<rect x=\"{x:.1}\" y=\"{y:.1}\" width=\"{w:.1}\" height=\"{h:.1}\" rx=\"{:.1}\" {st}/>", h / 2.0);
-            }
-            Shape::Circle => {
-                let _ = write!(s, "<circle cx=\"{cx:.1}\" cy=\"{cy:.1}\" r=\"{:.1}\" {st}/>", w / 2.0);
-            }
-            Shape::Diamond => {
-                let _ = write!(s, "<polygon points=\"{cx:.1},{y:.1} {:.1},{cy:.1} {cx:.1},{:.1} {x:.1},{cy:.1}\" {st}/>", x + w, y + h);
-            }
-            Shape::Hexagon => {
-                let k = 12.0;
-                let _ = write!(
-                    s,
-                    "<polygon points=\"{:.1},{y:.1} {:.1},{y:.1} {:.1},{cy:.1} {:.1},{:.1} {:.1},{:.1} {x:.1},{cy:.1}\" {st}/>",
-                    x + k,
-                    x + w - k,
-                    x + w,
-                    x + w - k,
-                    y + h,
-                    x + k,
-                    y + h
-                );
-            }
-            Shape::Cylinder => {
-                let ry = 6.0;
-                let _ = write!(
-                    s,
-                    "<path d=\"M{x:.1},{:.1} L{x:.1},{:.1} A{:.1},{ry} 0 0 0 {:.1},{:.1} L{:.1},{:.1} A{:.1},{ry} 0 0 0 {x:.1},{:.1} Z\" {st}/><path d=\"M{x:.1},{:.1} A{:.1},{ry} 0 0 0 {:.1},{:.1}\" fill=\"none\" stroke=\"{}\" stroke-width=\"1.5\"/>",
-                    y + ry,
-                    y + h - ry,
-                    w / 2.0,
-                    x + w,
-                    y + h - ry,
-                    x + w,
-                    y + ry,
-                    w / 2.0,
-                    y + ry,
-                    y + ry,
-                    w / 2.0,
-                    x + w,
-                    y + ry,
-                    ink.node_border
-                );
-            }
-        }
-        let _ = write!(s, "<text x=\"{cx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-size=\"{fs}\">{}</text>", cy + 4.5, esc(&nd.label));
-    }
-    s.push_str("</svg>");
-    Some(Svg { svg: s, width: w, height: h })
 }
 
 fn sequence(lines: &[&str], dark: bool) -> Option<Svg> {
@@ -1364,15 +1051,17 @@ mod tests {
 
     #[test]
     fn mermaid_kinds() {
-        for id in ["flowchart", "sequence", "pie", "gantt"] {
+        for d in library::DIAGRAMS {
+            let id = d.id;
             let d = library::DIAGRAMS.iter().find(|d| d.id == id).expect("snippet");
             let svg = render(d.lang, d.code, true);
             assert!(svg.is_some(), "{id} does not draw");
         }
-        assert!(render("mermaid", "classDiagram\n  class A", false).is_none());
-        assert!(!supported("mermaid", "classDiagram\n  class A"));
+        assert!(render("mermaid", "requirementDiagram\n  requirement A", false).is_none());
+        assert!(!supported("mermaid", "requirementDiagram\n  requirement A"));
+        assert!(supported("mermaid", "classDiagram\n  class A"));
         assert!(supported("mermaid", "flowchart LR\n  A --> B"));
-        assert!(!supported("plantuml", "@startuml"));
+        assert!(supported("plantuml", "@startuml"));
         assert!(render("rust", "fn main() {}", false).is_none());
     }
 

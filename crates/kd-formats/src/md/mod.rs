@@ -7,6 +7,7 @@ pub mod highlight;
 pub mod html;
 pub mod library;
 pub mod math;
+pub mod media;
 pub mod parse;
 pub mod review;
 pub mod slides;

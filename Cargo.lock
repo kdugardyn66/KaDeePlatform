@@ -3339,9 +3339,11 @@ dependencies = [
  "kd-store",
  "kd-ui",
  "resvg",
+ "serde_json",
  "smallvec",
  "tempfile",
  "unicode-segmentation",
+ "ureq",
 ]
 
 [[package]]
