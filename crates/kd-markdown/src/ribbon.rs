@@ -178,7 +178,7 @@ pub struct Group {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TabId {
-    /// The File tab: New, Open, Open Recent, Save, Save As, Export, Print, Close.
+    /// The File tab: New, Open, Open Recent | Document info | Save, Save As | Export | Print | Close.
     File,
     Home,
     Insert,
@@ -220,6 +220,7 @@ pub fn tabs() -> Vec<Tab> {
             contextual: false,
             groups: vec![
                 g("Document", vec![B(large("file.new")), B(large("file.open")), B(large("file.recent").drop(Menu::Recent))]),
+                g("Info", vec![B(large("file.info").label("Document info"))]),
                 g("Save", vec![B(large("file.save")), B(large("file.saveAs").label("Save As").drop(Menu::SaveAs))]),
                 g("Export", vec![B(large("file.export").drop(Menu::Export))]),
                 g("Print", vec![B(large("file.print").label("Print"))]),

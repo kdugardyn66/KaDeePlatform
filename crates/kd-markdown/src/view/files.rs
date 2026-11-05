@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 
 use gpui::{AnyElement, ClickEvent, Context, FontWeight, IntoElement, MouseButton, Window, deferred, div, prelude::*, px};
 use kd_formats::export::{Format, Input, export};
-use kd_formats::md::{library, templates};
 use kd_ui::{Palette, button, primary_button};
 
 use super::{MarkdownEvent, MarkdownView, icon_colors, md_icon};
@@ -302,144 +301,23 @@ impl MarkdownView {
         if !self.chooser {
             return None;
         }
-        let tile = |id: (&'static str, usize), name: String, sub: String, colors: [u32; 3], deck: bool, pal: &Palette| {
-            let (hover_bg, hover_border) = (pal.surface_hover, pal.border_strong);
-            div()
-                .id(id)
-                .p(px(8.0))
-                .flex()
-                .flex_col()
-                .gap(px(6.0))
-                .rounded(px(8.0))
-                .border_1()
-                .border_color(pal.border)
-                .cursor_pointer()
-                .hover(move |s| s.bg(hover_bg).border_color(hover_border))
-                .child(
-                    div()
-                        .h(px(52.0))
-                        .rounded(px(5.0))
-                        .border_1()
-                        .border_color(pal.border)
-                        .bg(if deck { gpui::rgb(colors[0]) } else { gpui::rgb(0xffffff) })
-                        .px(px(8.0))
-                        .py(px(6.0))
-                        .flex()
-                        .flex_col()
-                        .justify_between()
-                        .child(
-                            div()
-                                .text_size(px(12.0))
-                                .font_weight(FontWeight::BOLD)
-                                .text_color(gpui::rgb(if deck { colors[2] } else { colors[0] }))
-                                .child(kd_ui::truncate(&name, 22)),
-                        )
-                        .child(
-                            div().flex().gap(px(3.0)).children(colors.map(|c| div().flex_1().h(px(4.0)).rounded(px(1.0)).bg(gpui::rgb(c)))),
-                        ),
-                )
-                .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(name))
-                .child(div().text_size(px(11.0)).text_color(pal.text_muted).line_height(px(14.0)).child(sub))
-        };
-        let mut docs: Vec<AnyElement> = Vec::new();
-        let mut decks: Vec<AnyElement> = Vec::new();
-        for (i, t) in templates::BUILT_IN.iter().enumerate() {
-            let colors = library::theme(t.theme).map(|th| th.colors).unwrap_or([0x1f2328, 0x2f5dd6, 0xf2f2f2]);
-            let deck = t.kind == templates::Kind::Presentation;
-            let (name, source) = (t.name.to_string(), t.source.to_string());
-            let el = tile(("tpl-new", i), t.name.to_string(), t.description.to_string(), colors, deck, pal)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.chooser = false;
-                    cx.emit(MarkdownEvent::NewFromTemplate { name: name.clone(), source: source.clone() });
-                    cx.notify();
-                }))
-                .into_any_element();
-            if deck { decks.push(el) } else { docs.push(el) }
-        }
-        let mine: Vec<AnyElement> = templates::user_templates(&self.template_dirs)
-            .into_iter()
-            .enumerate()
-            .map(|(i, t)| {
-                let deck = t.kind == templates::Kind::Presentation;
-                let path = t.path.clone();
-                let name = t.name.clone();
-                tile(
-                    ("tpl-mine", i),
-                    t.name.clone(),
-                    format!("{} (.{})", t.kind.label(), t.kind.extension()),
-                    [0x2f5dd6, 0x19a979, 0xe8743b],
-                    deck,
-                    pal,
-                )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.chooser = false;
-                    match std::fs::read_to_string(&path) {
-                        Ok(source) => cx.emit(MarkdownEvent::NewFromTemplate { name: name.clone(), source }),
-                        Err(e) => cx.emit(MarkdownEvent::Toast(format!("Could not read the template: {e}"))),
-                    }
-                    cx.notify();
-                }))
-                .into_any_element()
-            })
-            .collect();
-        let section = |title: &str| {
-            div()
-                .mt(px(14.0))
-                .mb(px(8.0))
-                .text_size(px(13.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(pal.text_muted)
-                .child(title.to_string())
-        };
-        let card = div()
-            .w(px(860.0))
-            .max_h(px(620.0))
-            .flex()
-            .flex_col()
-            .rounded(px(12.0))
-            .bg(pal.surface)
-            .border_1()
-            .border_color(pal.border)
-            .shadow_lg()
-            .occlude()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .px(px(18.0))
-                    .py(px(12.0))
-                    .border_b_1()
-                    .border_color(pal.border)
-                    .child(div().text_size(px(16.0)).font_weight(FontWeight::SEMIBOLD).child("New"))
-                    .child(div().ml(px(10.0)).text_size(px(12.0)).text_color(pal.text_muted).child("Start from a Markdown template"))
-                    .child(div().flex_1())
-                    .child(button("chooser-cancel", "Cancel", pal).on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.chooser = false;
-                        cx.notify();
-                    }))),
-            )
-            .child(
-                div()
-                    .id("chooser-body")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .px(px(18.0))
-                    .pb(px(18.0))
-                    .child(section("Documents"))
-                    .child(div().grid().grid_cols(5).gap(px(10.0)).children(docs))
-                    .child(section("Slide decks"))
-                    .child(div().grid().grid_cols(5).gap(px(10.0)).children(decks))
-                    .when(!mine.is_empty(), |d| {
-                        d.child(section("My templates")).child(div().grid().grid_cols(5).gap(px(10.0)).children(mine))
-                    }),
-            );
-        Some(overlay(
-            card,
+        let pick = cx.entity().downgrade();
+        let close = pick.clone();
+        Some(crate::chooser::template_chooser(
+            &self.template_dirs,
             pal,
-            cx.listener(|this, _, _, cx| {
-                this.chooser = false;
-                cx.notify();
+            std::rc::Rc::new(move |name, source, _window, cx| {
+                let _ = pick.update(cx, |this, cx| {
+                    this.chooser = false;
+                    cx.emit(MarkdownEvent::NewFromTemplate { name, source });
+                    cx.notify();
+                });
+            }),
+            std::rc::Rc::new(move |_window, cx| {
+                let _ = close.update(cx, |this, cx| {
+                    this.chooser = false;
+                    cx.notify();
+                });
             }),
         ))
     }

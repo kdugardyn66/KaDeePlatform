@@ -249,6 +249,90 @@ impl MarkdownView {
         self.editor.read(cx).text().to_string()
     }
 
+    /// File › Document info: the file, its dates and what the document holds.
+    pub fn document_info(&self, cx: &App) -> Vec<(&'static str, String)> {
+        let text = self.text(cx);
+        let parsed = md::parse(&text);
+        let mut rows: Vec<(&'static str, String)> = Vec::new();
+        let ext =
+            self.path.as_ref().and_then(|p| p.extension()).map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_else(|| "md".into());
+        let kind = match ext.as_str() {
+            "mdd" => "Markdown document template (.mdd)",
+            "mds" | "mdp" => "Markdown slide deck template",
+            "markdown" => "Markdown document (.markdown)",
+            _ => "Markdown document (.md)",
+        };
+        match &self.path {
+            Some(p) => {
+                rows.push(("Name", p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()));
+                rows.push(("Type", kind.to_string()));
+                rows.push(("Location", p.parent().map(tilde).unwrap_or_default()));
+                if let Ok(meta) = std::fs::metadata(p) {
+                    let when = |t: std::io::Result<std::time::SystemTime>| {
+                        t.ok().map(|t| chrono::DateTime::<chrono::Local>::from(t).format("%-d %B %Y, %H:%M").to_string())
+                    };
+                    rows.push(("Size", human_size(meta.len())));
+                    if let Some(c) = when(meta.created()) {
+                        rows.push(("Created", c));
+                    }
+                    if let Some(m) = when(meta.modified()) {
+                        rows.push(("Modified", m));
+                    }
+                }
+            }
+            None => {
+                rows.push(("Name", "Untitled".into()));
+                rows.push(("Type", kind.to_string()));
+            }
+        }
+        rows.push((
+            "Saved",
+            if self.path.is_none() {
+                "Not saved yet".into()
+            } else if self.is_dirty(cx) {
+                "Unsaved changes".into()
+            } else {
+                "Saved".into()
+            },
+        ));
+        for (key, label) in [("title", "Title"), ("author", "Author"), ("date", "Date"), ("theme", "Theme")] {
+            if let Some((_, v)) = parsed.front_matter.iter().find(|(k, _)| k == key)
+                && !v.trim().is_empty()
+            {
+                rows.push((label, v.trim().trim_matches('"').to_string()));
+            }
+        }
+        let words = md::word_count(&parsed);
+        rows.push(("Words", format!("{words}  ·  about {} min to read", words.div_ceil(230).max(1))));
+        rows.push((
+            "Characters",
+            format!("{} ({} without spaces)", text.chars().count(), text.chars().filter(|c| !c.is_whitespace()).count()),
+        ));
+        rows.push(("Lines", text.lines().count().to_string()));
+        let mut c = Counts::default();
+        c.walk(&parsed.blocks);
+        rows.push(("Headings", md::outline(&parsed).len().to_string()));
+        let slides = md::slides::slides(&text).len();
+        if slides > 0 {
+            rows.push(("Slides", slides.to_string()));
+        }
+        let mut contents = Vec::new();
+        for (n, one, many) in [
+            (c.tables, "table", "tables"),
+            (c.pictures, "picture", "pictures"),
+            (c.media, "video or audio", "videos or audio"),
+            (c.diagrams, "chart or diagram", "charts and diagrams"),
+            (c.links, "link", "links"),
+            (c.includes, "included file", "included files"),
+        ] {
+            if n > 0 {
+                contents.push(format!("{n} {}", if n == 1 { one } else { many }));
+            }
+        }
+        rows.push(("Contains", if contents.is_empty() { "Text only".into() } else { contents.join(", ") }));
+        rows
+    }
+
     pub fn is_dirty(&self, cx: &App) -> bool {
         self.editor.read(cx).doc.is_dirty()
     }
@@ -370,8 +454,9 @@ impl MarkdownView {
         match id {
             // the host's
             "file.newBlank" | "file.newDeck" | "file.save" | "file.saveAs" | "file.saveTemplate" | "template.use" | "file.close"
-            | "file.clearRecent" | "file.info" | "file.options" | "view.light" | "view.dark" | "view.system" | "ai.ask"
-            | "help.markdown" => cx.emit(MarkdownEvent::Host(id)),
+            | "file.clearRecent" | "file.options" | "view.light" | "view.dark" | "view.system" | "ai.ask" | "help.markdown" => {
+                cx.emit(MarkdownEvent::Host(id))
+            }
             "file.print" | "file.exportPdf" => self.print(window, cx),
             "file.exportHtml" => self.export_html(window, cx),
             "file.copyRich" => {
@@ -646,6 +731,7 @@ impl MarkdownView {
                 self.info = Some(panels::Info::Accessibility(issues));
             }
             "help.shortcuts" => self.info = Some(panels::Info::Shortcuts),
+            "file.info" => self.info = Some(panels::Info::Document(self.document_info(cx))),
             "view.pageWidth" => self.preview.update(cx, |p, cx| {
                 p.page_width = !p.page_width;
                 cx.notify();
@@ -2092,5 +2178,86 @@ mod tests {
         assert_eq!(hits[0].id, "insert.table");
         assert!(search_commands("zzzz").is_empty());
         assert!(search_commands("  ").is_empty());
+    }
+}
+
+/// What a document holds, for Document info.
+#[derive(Default)]
+struct Counts {
+    tables: usize,
+    pictures: usize,
+    media: usize,
+    diagrams: usize,
+    links: usize,
+    includes: usize,
+}
+
+impl Counts {
+    fn inlines(&mut self, inl: &[md::Inline]) {
+        let mut last_link: Option<&str> = None;
+        for i in inl {
+            match i {
+                md::Inline::Image { url, .. } if md::media::kind(url).is_some() => self.media += 1,
+                md::Inline::Image { .. } => self.pictures += 1,
+                md::Inline::Text(_, s) => {
+                    if let Some(l) = s.link.as_deref()
+                        && last_link != Some(l)
+                    {
+                        self.links += 1;
+                    }
+                    last_link = s.link.as_deref();
+                }
+                _ => last_link = None,
+            }
+        }
+    }
+
+    fn walk(&mut self, blocks: &[md::Block]) {
+        for b in blocks {
+            match b {
+                md::Block::Paragraph { inlines, .. } => {
+                    if md::media::import_of(inlines).is_some() {
+                        self.includes += 1;
+                    } else {
+                        self.inlines(inlines);
+                    }
+                }
+                md::Block::Heading { inlines, .. } => self.inlines(inlines),
+                md::Block::List { items, .. } => {
+                    for it in items {
+                        self.walk(&it.blocks);
+                    }
+                }
+                md::Block::Quote { blocks, .. } | md::Block::Callout { blocks, .. } => self.walk(blocks),
+                md::Block::Table { header, rows, .. } => {
+                    self.tables += 1;
+                    for c in header.iter().chain(rows.iter().flatten()) {
+                        self.inlines(c);
+                    }
+                }
+                md::Block::Code { info, text, .. } if md::diagram::supported(info, text) => self.diagrams += 1,
+                md::Block::Html { text, .. } if md::media::html_media(text).is_some() => self.media += 1,
+                _ => {}
+            }
+        }
+    }
+}
+
+/// 1 234 bytes → "1.2 KB".
+fn human_size(n: u64) -> String {
+    match n {
+        n if n < 1024 => format!("{n} bytes"),
+        n if n < 1024 * 1024 => format!("{:.1} KB", n as f64 / 1024.0),
+        n => format!("{:.1} MB", n as f64 / (1024.0 * 1024.0)),
+    }
+}
+
+/// A folder with the home folder as `~`.
+fn tilde(p: &std::path::Path) -> String {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from);
+    match home.and_then(|h| p.strip_prefix(&h).ok().map(|r| r.to_path_buf())) {
+        Some(r) if r.as_os_str().is_empty() => "~".into(),
+        Some(r) => format!("~{}{}", std::path::MAIN_SEPARATOR, r.display()),
+        None => p.display().to_string(),
     }
 }

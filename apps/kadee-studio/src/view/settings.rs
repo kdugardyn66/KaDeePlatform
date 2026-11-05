@@ -958,14 +958,6 @@ fn about(app: &KadeeApp, pal: &Palette, cx: &mut Context<KadeeApp>) -> impl Into
         )
         .child(
             div()
-                .w_full()
-                .mb(px(18.0))
-                .text_size(px(13.0))
-                .text_color(pal.text_muted)
-                .child("Icons in the style of Lucide (ISC). App icons by their makers."),
-        )
-        .child(
-            div()
                 .flex()
                 .flex_wrap()
                 .gap(px(8.0))

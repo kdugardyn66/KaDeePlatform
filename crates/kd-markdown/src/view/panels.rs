@@ -92,6 +92,8 @@ impl PromptKind {
 pub enum Info {
     Accessibility(Vec<md::review::Issue>),
     Shortcuts,
+    /// File › Document info: label and value rows.
+    Document(Vec<(&'static str, String)>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -514,6 +516,25 @@ impl MarkdownView {
                                 this.editor.update(cx, |e, cx| e.go_to_line(line, window, cx));
                                 cx.notify();
                             }))
+                            .into_any_element()
+                    })
+                    .collect(),
+            ),
+            Info::Document(rows) => (
+                "Document info",
+                rows.iter()
+                    .map(|(label, value)| {
+                        // the label sits in the left padding, so long values wrap beside it
+                        div()
+                            .relative()
+                            .w_full()
+                            .pl(px(110.0))
+                            .py(px(4.0))
+                            .line_height(px(19.0))
+                            .border_b_1()
+                            .border_color(pal.border)
+                            .child(div().absolute().left_0().top(px(4.0)).text_color(pal.text_muted).child(*label))
+                            .child(div().w_full().child(value.clone()))
                             .into_any_element()
                     })
                     .collect(),

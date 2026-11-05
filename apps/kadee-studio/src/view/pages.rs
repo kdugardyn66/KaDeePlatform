@@ -327,30 +327,18 @@ fn text_preview(path: &Path) -> Option<String> {
 
 /// Markdown templates: the built-in documents and slide decks, and the user's own (`.mdd`, `.mds`).
 fn templates_section(app: &mut KadeeApp, pal: &Palette, cx: &mut Context<KadeeApp>) -> impl IntoElement {
-    use kd_formats::md::{library, templates};
+    use kd_formats::md::templates;
     let card = |i: usize, t: &'static templates::Template, cx: &mut Context<KadeeApp>| {
-        let colors = library::theme(t.theme).map(|th| th.colors).unwrap_or([0x1f2328, 0x2f5dd6, 0xf2f2f2]);
         let (hover_bg, hover_border) = (pal.surface_hover, pal.border_strong);
         let deck = t.kind == templates::Kind::Presentation;
         let preview = div()
-            .h(px(64.0))
-            .rounded(px(6.0))
-            .border_1()
-            .border_color(pal.border)
-            .bg(if deck { gpui::rgb(colors[0]) } else { gpui::rgb(0xffffff) })
-            .px(px(10.0))
-            .py(px(8.0))
+            .h(px(150.0))
             .flex()
-            .flex_col()
-            .justify_between()
-            .child(
-                div()
-                    .text_size(px(13.0))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(gpui::rgb(if deck { colors[2] } else { colors[0] }))
-                    .child(kd_ui::truncate(t.name, 26)),
-            )
-            .child(div().flex().gap(px(3.0)).children(colors.map(|c| div().flex_1().h(px(5.0)).rounded(px(1.0)).bg(gpui::rgb(c)))));
+            .items_center()
+            .justify_center()
+            .rounded(px(6.0))
+            .bg(pal.canvas)
+            .child(kd_markdown::chooser::template_preview(t.source, Some(t.theme), if deck { 170.0 } else { 108.0 }, pal));
         div()
             .id(("tpl", i))
             .p(px(10.0))

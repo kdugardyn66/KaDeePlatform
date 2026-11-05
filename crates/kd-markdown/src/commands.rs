@@ -46,7 +46,7 @@ pub const COMMANDS: &[Cmd] = &[
     c("file.exportPdf", "Export as PDF…", "pdf", None),
     c("file.copyRich", "Copy as formatted text", "clipboard-rich", None),
     c("file.close", "Close", "x", None),
-    c("file.info", "Document properties", "info", None),
+    c("file.info", "Document info", "info", None),
     c("file.options", "Options", "settings", Some("Mod+,")),
     c("edit.undo", "Undo", "undo", Some("Mod+Z")),
     c("edit.redo", "Redo", "redo", None),

@@ -68,6 +68,26 @@ impl Render for KadeeApp {
                     .child(div().flex_1().min_w_0().h_full().flex().flex_col().child(center))
                     .when(self.ai_pane, |d| d.child(ai::pane(self, window, cx))),
             )
+            .children(self.template_chooser.then(|| {
+                let pick = cx.entity().downgrade();
+                let close = pick.clone();
+                kd_markdown::chooser::template_chooser(
+                    &self.template_dirs(),
+                    &pal,
+                    std::rc::Rc::new(move |name, source, window, cx| {
+                        let _ = pick.update(cx, |this, cx| {
+                            this.template_chooser = false;
+                            this.new_from_template(&name, &source, window, cx);
+                        });
+                    }),
+                    std::rc::Rc::new(move |_window, cx| {
+                        let _ = close.update(cx, |this, cx| {
+                            this.template_chooser = false;
+                            cx.notify();
+                        });
+                    }),
+                )
+            }))
             .children(overlay::menu(self, window, cx))
             .children(overlay::dialog(self, window, cx))
             .children(overlay::toast(self, cx))

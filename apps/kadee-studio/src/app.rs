@@ -115,6 +115,8 @@ pub struct KadeeApp {
     pub menu: Option<OpenMenu>,
     menu_closed: Option<(MenuKind, Instant)>,
     pub dialog: Option<Dialog>,
+    /// The Markdown template chooser (New Markdown) is open.
+    pub template_chooser: bool,
     /// The Kadee Markdown editors of open `.md` tabs.
     pub md: HashMap<PathBuf, Entity<MarkdownView>>,
     pub toast: Option<(SharedString, Instant)>,
@@ -239,6 +241,7 @@ impl KadeeApp {
             menu: None,
             menu_closed: None,
             dialog: None,
+            template_chooser: false,
             md: HashMap::new(),
             toast: None,
             search,
@@ -633,7 +636,13 @@ impl KadeeApp {
     fn markdown_command(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let cmd = match id {
             "file.new" => Command::NewDocumentPicker,
-            "file.newBlank" | "file.newDeck" => Command::NewDocument(ModuleKind::Markdown),
+            "file.newBlank" | "file.newDeck" => {
+                let id = if id == "file.newDeck" { "blank-deck" } else { "blank" };
+                if let Some(t) = templates::built_in(id) {
+                    self.new_from_template(t.name, t.source, window, cx);
+                }
+                return;
+            }
             "file.open" => Command::OpenDialog,
             "file.save" => Command::Save,
             "file.saveAs" => Command::SaveAs,
@@ -1006,6 +1015,9 @@ impl KadeeApp {
     pub fn on_dismiss(&mut self, _: &keys::Dismiss, window: &mut Window, cx: &mut Context<Self>) {
         if self.menu.is_some() {
             self.close_menu(cx);
+        } else if self.template_chooser {
+            self.template_chooser = false;
+            cx.notify();
         } else if self.dialog.is_some() {
             self.close_dialog(window, cx);
         } else if self.settings.is_some() {
@@ -1026,6 +1038,11 @@ impl KadeeApp {
         match cmd {
             Command::NewDocumentPicker => self.show_page(Page::New, window, cx),
             Command::NewDocument(ModuleKind::Pdf) | Command::OpenModule(ModuleKind::Pdf) => self.prompt_open(window, cx),
+            // New Markdown: choose a template first (as File › New… in the editor)
+            Command::NewDocument(ModuleKind::Markdown) => {
+                self.template_chooser = true;
+                cx.notify();
+            }
             Command::NewDocument(kind) => match create_new_document(kind, &self.target_dir()) {
                 Ok(path) => {
                     self.refresh();

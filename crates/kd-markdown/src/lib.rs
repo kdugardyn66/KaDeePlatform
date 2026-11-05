@@ -1,6 +1,7 @@
 //! Kadee Markdown — the native rebuild of MdCraft on GPUI: MdCraft's ribbon, editor, preview,
 //! navigation pane and status bar, with KaDee AI in place of MdCraft's AI layer.
 
+pub mod chooser;
 pub mod commands;
 pub mod editor;
 pub mod icons;

@@ -53,6 +53,13 @@ Kadee Markdown: MdCraft rebuilt natively in GPUI and opened in KadeeStudio's tab
 
 - The application is called **KaDeePlatform** everywhere: window title, menus (About / Quit KaDeePlatform), sidebar, Settings, About, the New page, KaDee AI's introduction, the Windows program and the macOS app name. The About page no longer refers to KadeeStudio 0.3 (text and button removed), and its rows no longer overlap when the list of apps wraps.
 
+**Templates and Document info**
+
+- **Template previews**: every template in the chooser and on the New page shows a miniature in its theme — the first page of a document (title, headings, text, lists, tables, figures) or the first slide of a deck.
+- **New Markdown on the home page** opens the template chooser, as File › New… does in the editor (Blank document is the first choice).
+- **File › Document info** (after Open Recent, in a group of its own): name, type, location, size, created and modified dates, saved state, title / author / theme from the front matter, words with reading time, characters, lines, headings, slides and what the document contains (tables, pictures, videos, diagrams, links, included files).
+- About no longer shows the icon credits line.
+
 ## 0.1.0 — 2026-11-03
 
 The KaDee Platform's first version: KadeeStudio's start screen as a standalone GPUI app.
