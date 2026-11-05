@@ -40,7 +40,7 @@ pub fn new_page(app: &mut KadeeApp, cx: &mut Context<KadeeApp>) -> impl IntoElem
     content_column("new-scroll", &pal).child(
         column()
             .child(page_title("New document", format!("New documents go into “{}”", file_name(&dir)), &pal))
-            .child(section_title("KadeeStudio", None, &pal))
+            .child(section_title("KaDeePlatform", None, &pal))
             .child(div().h(px(12.0)))
             .child(kadee)
             .child(div().h(px(30.0)))
@@ -183,7 +183,7 @@ pub fn craft_apps(app: &mut KadeeApp, window: &mut gpui::Window, cx: &mut Contex
             .child(page_title(
                 "Apps",
                 format!(
-                    "Open-source Rust apps from the ArtCraft team, plus SolidCraft from Tangency Labs and MdCraft. {n} of {} are installed on this computer; click one to open it. Their files already appear under All; KadeeStudio embeds them in Phase {}.",
+                    "Open-source Rust apps from the ArtCraft team, plus SolidCraft from Tangency Labs and MdCraft. {n} of {} are installed on this computer; click one to open it. Their files already appear under All; KaDeePlatform embeds them in Phase {}.",
                     CRAFT_APPS.len(),
                     kd_store::CRAFT_PHASE
                 ),

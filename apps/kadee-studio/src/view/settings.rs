@@ -159,7 +159,9 @@ fn field(label: &str, hint: &str, control: impl IntoElement, pal: &Palette) -> g
         .mb(px(18.0))
         .child(div().text_size(px(14.5)).font_weight(FontWeight::MEDIUM).child(label.to_string()))
         .child(control)
-        .when(!hint.is_empty(), |d| d.child(div().text_size(px(12.5)).text_color(pal.text_faint).child(hint.to_string())))
+        .when(!hint.is_empty(), |d| {
+            d.child(div().text_size(px(12.5)).line_height(px(18.0)).text_color(pal.text_faint).child(hint.to_string()))
+        })
 }
 
 fn small_label(text: impl Into<SharedString>, pal: &Palette) -> gpui::Div {
@@ -331,13 +333,13 @@ fn general(app: &mut KadeeApp, window: &Window, pal: &Palette, cx: &mut Context<
         ))
         .child(field(
             "Open each module in a new",
-            "Kadee Markdown, Kadee PDF …: when the module is open already, KadeeStudio switches to it. Windows come in a later version.",
+            "Kadee Markdown, Kadee PDF …: when the module is open already, KaDeePlatform switches to it. Windows come in a later version.",
             div().flex().child(open_in("open-mod", mods_in, true, cx)),
             pal,
         ))
         .child(field(
             "Open each file in a new",
-            "When the file is open already, KadeeStudio switches to its tab.",
+            "When the file is open already, KaDeePlatform switches to its tab.",
             div().flex().child(open_in("open-file", files_in, false, cx)),
             pal,
         ))
@@ -354,7 +356,7 @@ fn general(app: &mut KadeeApp, window: &Window, pal: &Palette, cx: &mut Context<
                 .gap(px(4.0))
                 .text_size(px(12.5))
                 .text_color(pal.text_faint)
-                .child(format!("KadeeStudio {} ·", kd_store::VERSION))
+                .child(format!("KaDeePlatform {} ·", kd_store::VERSION))
                 .child(
                     div()
                         .id("general-about")
@@ -848,10 +850,10 @@ fn models(app: &mut KadeeApp, pal: &Palette, cx: &mut Context<KadeeApp>) -> impl
         .max_w(px(760.0))
         .flex()
         .flex_col()
-        .child(heading("AI models", "Which model KaDee AI uses, in general and for each part of KadeeStudio.", pal))
+        .child(heading("AI models", "Which model KaDee AI uses, in general and for each part of KaDeePlatform.", pal))
         .child(field(
             "Default model",
-            "Used wherever a part of KadeeStudio has no model of its own.",
+            "Used wherever a part of KaDeePlatform has no model of its own.",
             picker_button("pick-default", default_label, 460.0, Picker::DefaultModel, pal, cx),
             pal,
         ))
@@ -912,61 +914,70 @@ fn models(app: &mut KadeeApp, pal: &Palette, cx: &mut Context<KadeeApp>) -> impl
 fn about(app: &KadeeApp, pal: &Palette, cx: &mut Context<KadeeApp>) -> impl IntoElement {
     let os = format!("{} {}", std::env::consts::OS, std::env::consts::ARCH);
     let info = |l: &'static str, v: String| {
+        // the label sits in the left padding, so the value wraps in a block of known width
         div()
-            .flex()
-            .gap(px(12.0))
-            .child(div().w(px(130.0)).flex_none().text_color(pal.text_faint).child(l))
-            .child(div().flex_1().min_w_0().child(v))
+            .relative()
+            .w_full()
+            .pl(px(142.0))
+            .mb(px(6.0))
+            .line_height(px(21.0))
+            .child(div().absolute().left_0().top_0().text_color(pal.text_faint).child(l))
+            .child(div().w_full().child(v))
     };
     let installed =
         if app.installed.is_empty() { "None".to_string() } else { app.installed.iter().map(|a| a.app.name).collect::<Vec<_>>().join(", ") };
+    // block layout: text that wraps (the list of apps) is measured at the page's width
     div()
+        .w_full()
         .max_w(px(760.0))
-        .flex()
-        .flex_col()
-        .gap(px(18.0))
+        .child(div().mb(px(18.0)).flex().items_center().gap(px(16.0)).child(logo(64.0, pal)).child(
+            div().flex_1().min_w_0().flex().flex_col().gap(px(3.0)).child(div().text_size(px(24.0)).child("KaDeePlatform")).child(
+                div().text_size(px(14.0)).text_color(pal.text_muted).child(format!("Version {} · Rust and GPUI", kd_store::VERSION)),
+            ),
+        ))
         .child(
             div()
-                .flex()
-                .items_center()
-                .gap(px(16.0))
-                .child(logo(64.0, pal))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap(px(3.0))
-                        .child(div().text_size(px(24.0)).child("KadeeStudio"))
-                        .child(div().text_size(px(14.0)).text_color(pal.text_muted).child(format!("Version {} · KaDee Platform, standalone · Rust and GPUI", kd_store::VERSION))),
-                ),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(6.0))
+                .w_full()
+                .mb(px(12.0))
                 .text_size(px(14.0))
                 .child(info("Build", format!("{} · {}", env!("KADEE_COMMIT"), env!("KADEE_BUILD_DATE"))))
                 .child(info("System", os))
-                .child(info("Renderer", if cfg!(target_os = "macos") { "GPUI · Metal".into() } else if cfg!(windows) { "GPUI · DirectX".into() } else { "GPUI · Vulkan".into() }))
+                .child(info(
+                    "Renderer",
+                    if cfg!(target_os = "macos") {
+                        "GPUI · Metal".into()
+                    } else if cfg!(windows) {
+                        "GPUI · DirectX".into()
+                    } else {
+                        "GPUI · Vulkan".into()
+                    },
+                ))
                 .child(info("Settings", tilde(app.store.dir())))
                 .child(info("Apps", format!("{installed} ({} known)", CRAFT_APPS.len())))
                 .child(info("Licence", "MIT OR Apache-2.0".into())),
         )
-        .child(div().text_size(px(13.0)).text_color(pal.text_muted).child(
-            "The start screen is ported from KadeeStudio 0.3.1; KaDee AI from its kadee-ai layer (after SolarOffice's). Icons in the style of Lucide (ISC). App icons by their makers.",
-        ))
+        .child(
+            div()
+                .w_full()
+                .mb(px(18.0))
+                .text_size(px(13.0))
+                .text_color(pal.text_muted)
+                .child("Icons in the style of Lucide (ISC). App icons by their makers."),
+        )
         .child(
             div()
                 .flex()
                 .flex_wrap()
                 .gap(px(8.0))
                 .child(button("about-src", "Source code", pal).on_click(on_cmd(Command::OpenUrl(kd_store::SOURCE_REPO.into()), cx)))
-                .child(button("about-studio", "KadeeStudio 0.3", pal).on_click(on_cmd(Command::OpenUrl(kd_store::STUDIO_REPO.into()), cx)))
-                .child(button("about-mit", "MIT", pal).on_click(cx.listener(|this, _, _, cx| this.settings_section(SettingsSection::LicenseMit, cx))))
-                .child(button("about-apache", "Apache-2.0", pal).on_click(cx.listener(|this, _, _, cx| this.settings_section(SettingsSection::LicenseApache, cx)))),
+                .child(
+                    button("about-mit", "MIT", pal)
+                        .on_click(cx.listener(|this, _, _, cx| this.settings_section(SettingsSection::LicenseMit, cx))),
+                )
+                .child(
+                    button("about-apache", "Apache-2.0", pal)
+                        .on_click(cx.listener(|this, _, _, cx| this.settings_section(SettingsSection::LicenseApache, cx))),
+                ),
         )
 }
 

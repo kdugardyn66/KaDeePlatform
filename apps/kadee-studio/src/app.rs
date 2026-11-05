@@ -547,7 +547,7 @@ impl KadeeApp {
             return;
         }
         if DocKind::from_path(&path).is_none() {
-            self.notify(format!("KadeeStudio does not open “{}” files yet", ext_of(&path)), cx);
+            self.notify(format!("KaDeePlatform does not open “{}” files yet", ext_of(&path)), cx);
             return;
         }
         self.state.library.touch(&path, now());

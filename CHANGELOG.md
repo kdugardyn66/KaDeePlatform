@@ -49,6 +49,10 @@ Kadee Markdown: MdCraft rebuilt natively in GPUI and opened in KadeeStudio's tab
 - **Include file** (`@import "file"`) now shows the file's **icon, name and kind, linked to the file** instead of its contents: Markdown files open in a new tab, other files in their own app; a missing file says *Not found*. Exports show the same link. Links to local files in the text open the same way.
 - The preview's message for code it cannot draw now names the kind and says why.
 
+**Name**
+
+- The application is called **KaDeePlatform** everywhere: window title, menus (About / Quit KaDeePlatform), sidebar, Settings, About, the New page, KaDee AI's introduction, the Windows program and the macOS app name. The About page no longer refers to KadeeStudio 0.3 (text and button removed), and its rows no longer overlap when the list of apps wraps.
+
 ## 0.1.0 — 2026-11-03
 
 The KaDee Platform's first version: KadeeStudio's start screen as a standalone GPUI app.

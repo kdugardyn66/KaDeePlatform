@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the KaDee Platform (KadeeStudio) for Linux into dist/.
+# Build KaDeePlatform for Linux into dist/.
 #
 #   ./scripts/build-linux.sh              # release build → .tar.gz, plus .deb / .rpm / AppImage
 #                                         #   when dpkg-deb / rpmbuild / appimagetool are installed
@@ -133,7 +133,7 @@ Recommends: mesa-vulkan-drivers
 Maintainer: Kris Dugardyn <kris.dugardyn@gmail.com>
 Homepage: https://github.com/kdugardyn66/KaDeePlatform
 Description: Native Rust office suite on the GPU, with KaDee AI
- The KaDee Platform: KadeeStudio's start screen, documents and Crafting Apps,
+ The KaDeePlatform: the start screen, documents and Crafting Apps,
  drawn on the GPU with GPUI, and KaDee AI over many providers and local models.
 CTRL
   find "$DROOT" -type d -exec chmod 755 {} +
@@ -157,7 +157,7 @@ Requires:       libxkbcommon libxkbcommon-x11 libwayland-client vulkan-loader fo
 %global __strip /bin/true
 
 %description
-The KaDee Platform: KadeeStudio's start screen, documents and Crafting Apps,
+The KaDeePlatform: the start screen, documents and Crafting Apps,
 drawn on the GPU with GPUI, and KaDee AI over many providers and local models.
 
 %install

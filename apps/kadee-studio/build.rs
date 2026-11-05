@@ -9,8 +9,8 @@ fn main() {
     {
         let mut res = winresource::WindowsResource::new();
         res.set_icon("../../assets/app-icon/kadeestudio.ico");
-        res.set("ProductName", "KaDee Platform");
-        res.set("FileDescription", "KadeeStudio");
+        res.set("ProductName", "KaDeePlatform");
+        res.set("FileDescription", "KaDeePlatform");
         res.set("CompanyName", "Kris Dugardyn");
         res.set("LegalCopyright", "MIT OR Apache-2.0");
         if let Err(e) = res.compile() {

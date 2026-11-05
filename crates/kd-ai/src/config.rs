@@ -680,7 +680,7 @@ impl AiConfig {
     pub fn save(&self, dir: &Path) -> Result<(), AiError> {
         std::fs::create_dir_all(dir).map_err(|e| AiError::Config(e.to_string()))?;
         let text = format!(
-            "# KaDeeStudio AI settings. Edit in Settings › AI providers / AI models, or here.\n# API keys are stored in plain text; this file is readable by you only.\n\n{}",
+            "# KaDeePlatform AI settings. Edit in Settings › AI providers / AI models, or here.\n# API keys are stored in plain text; this file is readable by you only.\n\n{}",
             toml::to_string_pretty(self).map_err(|e| AiError::Config(e.to_string()))?
         );
         let tmp = dir.join(format!(".ai.toml.{}.tmp", std::process::id()));

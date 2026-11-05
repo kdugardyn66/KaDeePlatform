@@ -32,9 +32,7 @@ pub use store::{HomeState, Store};
 
 /// The source code on GitHub.
 pub const SOURCE_REPO: &str = "https://github.com/kdugardyn66/KaDeePlatform";
-/// The KadeeStudio 0.x repository the start screen is ported from.
-pub const STUDIO_REPO: &str = "https://github.com/kdugardyn66/KaDeeStudio";
 /// Product name shown in the UI.
-pub const APP_NAME: &str = "KadeeStudio";
+pub const APP_NAME: &str = "KaDeePlatform";
 /// Version from Cargo.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

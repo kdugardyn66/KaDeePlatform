@@ -150,7 +150,7 @@ pub fn sidebar(app: &mut KadeeApp, _window: &mut Window, cx: &mut Context<KadeeA
         div()
             .flex()
             .flex_col()
-            .child(div().text_size(px(17.0)).font_weight(FontWeight::MEDIUM).child("KadeeStudio"))
+            .child(div().text_size(px(17.0)).font_weight(FontWeight::MEDIUM).child("KaDeePlatform"))
             .child(div().text_size(px(12.5)).text_color(pal.text_faint).child(format!("Office suite · v{}", kd_store::VERSION))),
     );
 

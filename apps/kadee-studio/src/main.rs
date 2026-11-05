@@ -25,13 +25,13 @@ fn cmd(c: Command) -> RunCommand {
 fn set_menus(cx: &mut App) {
     cx.set_menus(vec![
         Menu {
-            name: "KadeeStudio".into(),
+            name: "KaDeePlatform".into(),
             items: vec![
-                MenuItem::action("About KadeeStudio", cmd(Command::OpenSettings(SettingsSection::About))),
+                MenuItem::action("About KaDeePlatform", cmd(Command::OpenSettings(SettingsSection::About))),
                 MenuItem::separator(),
                 MenuItem::action("Settings…", cmd(Command::OpenSettings(SettingsSection::General))),
                 MenuItem::separator(),
-                MenuItem::action("Quit KadeeStudio", keys::Quit),
+                MenuItem::action("Quit KaDeePlatform", keys::Quit),
             ],
         },
         Menu {
@@ -63,7 +63,7 @@ fn set_menus(cx: &mut App) {
             name: "Help".into(),
             items: vec![
                 MenuItem::action("Keyboard Shortcuts", cmd(Command::OpenSettings(SettingsSection::Keyboard))),
-                MenuItem::action("KadeeStudio on GitHub", cmd(Command::OpenUrl(kd_store::SOURCE_REPO.into()))),
+                MenuItem::action("KaDeePlatform on GitHub", cmd(Command::OpenUrl(kd_store::SOURCE_REPO.into()))),
             ],
         },
     ]);
@@ -81,14 +81,14 @@ fn main() {
             .open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    titlebar: Some(TitlebarOptions { title: Some("KadeeStudio".into()), ..Default::default() }),
+                    titlebar: Some(TitlebarOptions { title: Some("KaDeePlatform".into()), ..Default::default() }),
                     window_min_size: Some(size(px(880.0), px(560.0))),
                     app_id: Some("be.kadee.KaDeePlatform".into()),
                     ..Default::default()
                 },
                 |window, cx| cx.new(|cx| KadeeApp::new(window, cx)),
             )
-            .expect("open the KadeeStudio window");
+            .expect("open the KaDeePlatform window");
         window
             .update(cx, |app, window, cx| {
                 window.focus(&app.focus);

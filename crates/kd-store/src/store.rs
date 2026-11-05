@@ -19,7 +19,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 const FILE_NAME: &str = "home.json";
-const WELCOME_NAME: &str = "Welcome to KadeeStudio.md";
+const WELCOME_NAME: &str = "Welcome to KaDeePlatform.md";
 const WELCOME: &str = include_str!("../assets/welcome.md");
 
 /// Everything the start screen persists.

@@ -52,7 +52,7 @@ impl Http {
                 .http_status_as_error(false)
                 .timeout_connect(Some(Duration::from_secs(15)))
                 .timeout_recv_response(Some(first_byte_timeout))
-                .user_agent(format!("KaDeeStudio/{}", env!("CARGO_PKG_VERSION")))
+                .user_agent(format!("KaDeePlatform/{}", env!("CARGO_PKG_VERSION")))
         };
         let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
         let remote = base().tls_config(tls).build().new_agent();

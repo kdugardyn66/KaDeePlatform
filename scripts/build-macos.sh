@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the KaDee Platform (KadeeStudio) for macOS: a release binary, KaDeePlatform.app and a .dmg in dist/.
+# Build KaDeePlatform for macOS: a release binary, KaDeePlatform.app and a .dmg in dist/.
 #
 #   ./scripts/build-macos.sh                 # this Mac's architecture → .app + .dmg
 #   ./scripts/build-macos.sh --run           # build the .app and open it
@@ -30,7 +30,7 @@ cd "$ROOT"
 APP_NAME="KaDeePlatform"   # the .app, the volume and the .dmg
 BIN_NAME="kadee-studio"    # cargo package and binary
 BUNDLE_ID="be.kadee.KaDeePlatform"
-DISPLAY_NAME="KadeeStudio"
+DISPLAY_NAME="KaDeePlatform"
 # GPUI needs macOS 10.15.7; the Metal features it uses are there from 11.
 MIN_MACOS="11.0"
 DIST="$ROOT/dist"

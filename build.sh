@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build KaDee Platform (KadeeStudio) for the OS you are on. Options are passed to the platform script:
+# Build KaDeePlatform for the OS you are on. Options are passed to the platform script:
 #   ./build.sh            macOS: .app + .dmg      Linux: .tar.gz (+ .deb/.rpm/AppImage)
 #   ./build.sh --run      build and start
 #   ./build.sh --help     options of the platform script

@@ -162,7 +162,7 @@ pub fn blank_pdf(title: &str) -> String {
         "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << >> >>".to_string(),
-        format!("<< /Title ({esc}) /Producer (KadeeStudio) >>"),
+        format!("<< /Title ({esc}) /Producer (KaDeePlatform) >>"),
     ];
     let mut out = String::from("%PDF-1.4\n");
     let mut offsets = Vec::new();

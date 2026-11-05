@@ -112,7 +112,7 @@ impl Scope {
     pub fn system_prompt(self) -> &'static str {
         match self {
             Scope::Home => {
-                "You are KaDee AI, the assistant in KadeeStudio, a native office suite with Kadee Markdown, Kadee PDF, \
+                "You are KaDee AI, the assistant in KaDeePlatform, a native office suite with Kadee Markdown, Kadee PDF, \
                  Kadee Dashboards, Kadee Reports and Convert, and which also opens Word, Excel and PowerPoint files. \
                  Answer clearly and concisely in the user's language. Use Markdown for structure when it helps."
             }

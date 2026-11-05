@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Build the KaDee Platform (KadeeStudio) for Windows into dist\.
+  Build KaDeePlatform for Windows into dist\.
 
 .EXAMPLE
   .\scripts\build-windows.ps1                 # x64 release → portable .zip
@@ -29,7 +29,7 @@ Set-StrictMode -Version Latest
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 $AppName = 'KaDeePlatform'   # file names of the packages
-$ExeName = 'KadeeStudio'     # the installed program
+$ExeName = 'KaDeePlatform'    # the installed program
 $BinName = 'kadee-studio'    # cargo package and binary
 $Dist = Join-Path $Root 'dist'
 
