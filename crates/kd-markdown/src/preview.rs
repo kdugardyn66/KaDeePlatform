@@ -550,7 +550,14 @@ impl R {
                                 .text_size(px(13.0))
                                 .flex()
                                 .justify_center()
-                                .child(format!("{} — drawn in a later version", diagram_name(lang))),
+                                .child(if md::diagram::supported(info, text) {
+                                    format!("This {} could not be drawn — check its syntax", diagram_name(lang, text))
+                                } else {
+                                    format!(
+                                        "{} — Kadee Markdown cannot draw this kind yet, so its source is shown",
+                                        diagram_name(lang, text)
+                                    )
+                                }),
                         )
                         .child(code.opacity(0.6))
                         .into_any_element()
@@ -957,9 +964,26 @@ fn capitalise(s: &str) -> String {
     c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
 }
 
-fn diagram_name(lang: &str) -> String {
+fn diagram_name(lang: &str, code: &str) -> String {
     match lang {
-        "mermaid" => "Mermaid diagram".into(),
+        "mermaid" => {
+            let kind = match md::diagram::mermaid_kind(code).as_str() {
+                "flowchart" | "graph" => "flowchart",
+                "classDiagram" => "class diagram",
+                "stateDiagram" | "stateDiagram-v2" => "state diagram",
+                "erDiagram" => "entity relationship diagram",
+                "mindmap" => "mind map",
+                "timeline" => "timeline",
+                "journey" => "user journey",
+                "quadrantChart" => "quadrant chart",
+                "gitGraph" => "git graph",
+                "sequenceDiagram" => "sequence diagram",
+                "gantt" => "Gantt chart",
+                "pie" => "pie chart",
+                _ => "diagram",
+            };
+            format!("Mermaid {kind}")
+        }
         "chart" | "chartjs" | "vega" | "vega-lite" | "plotly" | "echarts" => "Chart".into(),
         l => format!("{} diagram", capitalise(l)),
     }

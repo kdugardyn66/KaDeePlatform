@@ -49,6 +49,28 @@ pub fn render(lang: &str, code: &str, dark: bool) -> Option<Svg> {
     Some(draw_chart(&chart, dark))
 }
 
+/// Whether this kind of chart or diagram is drawn natively (it may still fail on bad syntax).
+pub fn supported(lang: &str, code: &str) -> bool {
+    let lang = lang.trim();
+    let first = lang.split(|c: char| c.is_whitespace() || c == '{').next().unwrap_or("").to_ascii_lowercase();
+    match first.as_str() {
+        "chart" | "chartjs" | "vega-lite" | "vega" => true,
+        "csv" => lang.contains("chart="),
+        "mermaid" => matches!(mermaid_kind(code).as_str(), "flowchart" | "graph" | "pie" | "sequenceDiagram" | "gantt"),
+        _ => false,
+    }
+}
+
+/// The diagram keyword on a Mermaid block's first line (`classDiagram`, `flowchart` …).
+pub fn mermaid_kind(code: &str) -> String {
+    code.lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty() && !l.starts_with("%%") && *l != "---")
+        .and_then(|l| l.split_whitespace().next())
+        .unwrap_or("")
+        .to_string()
+}
+
 // ---- lenient JSON (Chart.js specs are JavaScript objects) ------------------------------------
 
 /// JavaScript object syntax to JSON: unquoted keys, single quotes, trailing commas, comments.
@@ -1348,6 +1370,9 @@ mod tests {
             assert!(svg.is_some(), "{id} does not draw");
         }
         assert!(render("mermaid", "classDiagram\n  class A", false).is_none());
+        assert!(!supported("mermaid", "classDiagram\n  class A"));
+        assert!(supported("mermaid", "flowchart LR\n  A --> B"));
+        assert!(!supported("plantuml", "@startuml"));
         assert!(render("rust", "fn main() {}", false).is_none());
     }
 
