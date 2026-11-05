@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.2.0 — in progress
+
+Kadee Markdown: MdCraft rebuilt natively in GPUI and opened in KadeeStudio's tabs. This first step brings MdCraft's ribbon, editor, preview, navigation pane and status bar; the remaining ribbon commands follow.
+
+- **`.md` files open in Kadee Markdown** inside their tab (instead of the details page): MdCraft's layout with the **File** tab, **Home, Insert, Design, Slides, Review, View** and the contextual **Table** tab, command search (*Search commands*), the document name and quick buttons (Save, Undo, Redo, KaDee AI, collapse the ribbon).
+- **The ribbon as in MdCraft**: the same groups, large / small / icon buttons, split buttons with their menus (Diagram, Chart, Callout, Code block, Equation, Present), drop-down buttons (Table with the 8 × 10 grid, Media, Chemistry, Date & time, Symbol, page Size, Orientation, Margins, Watermark), the Styles, document-theme, slide-theme and layout galleries, the font boxes and MdCraft's own two-tone icons. Buttons show their state (bold at the cursor, current heading, view, pane …) and run commands by MdCraft's ids, labels and shortcuts.
+- **Commands that work now**: undo/redo, clipboard, select all; bold, italic, underline, strikethrough, inline code, highlight, sub/superscript, font colour, clear formatting; Normal and Heading 1–6; bullets, numbering, checklist, quote, indent; horizontal line, page break, table of contents, callouts, code blocks, equations, inline math, the 15 diagrams and 6 charts, tables (grid), add row / column, delete row, tidy table, footnote, link, picture, collapsible section, date & time, symbols, chemical structure, properties; document theme, paper size, orientation, margins, watermark, numbered headings, justify; new slide with a layout; word count, outline; Write / Split / Read, navigation pane, line numbers, word wrap, scroll with the cursor, zoom, dark page, collapse the ribbon, focus mode, light / dark / system. Commands still to come say so in a message.
+- **Source editor** drawn with GPUI: Markdown colours (headings, markup dimmed, bold, italic, code, links, quotes, HTML, comments, front matter, math), word wrap, line numbers, active line, selection with mouse and keys, double and triple click, IME, clipboard, undo/redo with grouped typing, list and quote continuation on Enter, Tab / Shift+Tab indent.
+- **Native preview** with MdCraft's GitHub-like document styles in light and dark: headings, inline styles, links (open in the browser; `#anchors` jump), lists and task lists, quotes, callouts, code, tables with alignment, pictures (local files), rules, page and slide breaks, `[TOC]`, footnotes and front matter. Diagrams, charts and math show their source until they are drawn natively. Double-click a block to go to its source line.
+- **Navigation pane** with Headings (filter, current heading) and Slides; **status bar** with words, line and column, slides, save state, the views and zoom.
+- **Saving**: `Cmd+S` / `Ctrl+S` and Save As write the file safely (temporary file, then rename); unsaved tabs show •, and closing one asks first.
+- **KaDee AI in the editor**: MdCraft's AI layer is gone. KaDee AI answers about the document as it is on screen (unsaved text included, and the selection when there is one), and every answer has **Insert into document**.
+- New crates: **kd-doc** (text, selection, grouped undo), **kd-formats** (Markdown: parsing with comrak in MdCraft's dialect, editing operations, highlighting, MdCraft's libraries of diagrams, charts, callouts, layouts and themes) and **kd-markdown** (the editor, preview, ribbon and commands).
+- Documents named on the command line open at start.
+
+**The rest of the Markdown editor**
+
+- **File types**: `.md` and `.markdown` documents; **templates** `.mdd` (Markdown document template) and `.mds` (Markdown slide deck template). A template opens for editing with a bar offering **New document from this template**; File › **Save as template…** saves the document into the templates folder as `.mdd`, or `.mds` when it has slides.
+- **New page › templates**: MdCraft's 11 document and 8 slide deck templates, and **My templates** (from KaDee's templates folder and MdCraft's) with Use and Edit, *New document template*, *New slide deck template* and *Show templates folder*. Placeholders (`{{author}}`, `{{date}}`, `{{date_long}}`, `{{month_year}}`, `{{year}}`, `{{next_year}}`, `{{quarter}}`) are filled in; the author is the name from Settings.
+- **Find and Replace** (`Ctrl+F` / `Cmd+F`): matches highlighted in the editor, *n of m*, previous / next, match case, whole words, Replace and Replace all (one undo step). **Go to line** (`Ctrl+G`).
+- **Fonts**: the font box lists the installed fonts (type to filter), the size box MdCraft's sizes, grow / shrink, font colour and highlight colours — written as `<span style>` like MdCraft, and shown in the preview. Design › Document fonts set `mainfont`, `monofont` and `fontsize`.
+- **Slides**: layout gallery, duplicate, delete, move up / down, speaker notes, background colour, Convert to slides; the preview shows each slide as a 16:9 frame in the deck theme's colours with its notes; the status bar shows *Slide n of m*.
+- **Slide show** (`F5`, `Shift+F5`): full screen; arrows, space, Page Up / Down, Home / End, clicks; Esc ends at the slide you were on.
+- **Charts and diagrams drawn natively**: Chart.js bar, line, pie, doughnut and radar charts, charts from CSV tables, simple Vega-Lite charts, and Mermaid flowcharts, pie charts, sequence diagrams and Gantt charts. Math shows as Unicode (`\frac`, roots, Greek, super- and subscripts, `\ce{}`). Other diagram kinds still show their source.
+- **Insert**: cover page, link (asks for the address), table by size, table from a CSV file, video or audio, online video, include a file (`@import`, shown in the preview), emoji, 3D molecule; custom watermark.
+- **Print and Export as PDF** through the browser (the page opens with the print window; *Save as PDF* there), **Export as web page (HTML)** with MdCraft's styles, the theme, diagrams as SVG and page setup, and **Copy as formatted text** (HTML).
+- **Review › Check accessibility** (skipped heading levels, pictures without alternative text, vague link text, tables without headers; click an issue to go to it); **Help › Keyboard shortcuts**; **Markdown guide** (the Welcome template as a new document).
+- **View**: drag the divider between editor and preview (double-click resets), Page width.
+- Not yet: spelling, KaTeX/MathJax-quality math, running code chunks, the remaining Mermaid diagram kinds (class, state, ER, mind map, timeline, journey, quadrant, git graph), Graphviz, PlantUML and WaveDrom.
+
 ## 0.1.0 — 2026-11-03
 
 The KaDee Platform's first version: KadeeStudio's start screen as a standalone GPUI app.

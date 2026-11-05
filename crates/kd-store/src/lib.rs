@@ -21,7 +21,7 @@ pub use db::LibraryDb;
 pub use doctype::{DocGroup, DocKind, Opener, all_extensions, open_dialog_types};
 pub use files::{
     FileEntry, create_folder, create_new_document, duplicate_file, human_size, list_documents, list_subfolders, now, relative_time,
-    rename_file, rename_folder,
+    rename_file, rename_folder, unique_path,
 };
 pub use installed::{InstalledApp, Launch, detect_installed};
 pub use library::{Library, RecentEntry};

@@ -92,6 +92,12 @@ fn main() {
         window
             .update(cx, |app, window, cx| {
                 window.focus(&app.focus);
+                // documents named on the command line ("Open with")
+                for path in std::env::args().skip(1).filter(|a| !a.starts_with("--")).map(std::path::PathBuf::from) {
+                    if path.is_file() {
+                        app.open_path(path.canonicalize().unwrap_or(path), window, cx);
+                    }
+                }
                 cx.activate(true);
             })
             .ok();

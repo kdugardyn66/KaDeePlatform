@@ -35,7 +35,10 @@ impl Render for KadeeApp {
             }
         } else {
             match self.tabs.get(self.active - 1).cloned() {
-                Some(path) => pages::file_tab(self, &path, cx).into_any_element(),
+                Some(path) => match self.md.get(&path) {
+                    Some(editor) => editor.clone().into_any_element(),
+                    None => pages::file_tab(self, &path, cx).into_any_element(),
+                },
                 None => div().into_any_element(),
             }
         };

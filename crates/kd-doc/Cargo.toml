@@ -1,0 +1,10 @@
+[package]
+name = "kd-doc"
+description = "kd-doc: the KaDee document model — a text buffer with changes, selections and grouped undo/redo (the CRDT comes with collaboration)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]

@@ -13,6 +13,8 @@ use gpui::{
 };
 use kd_ai::{AiHub, AppKind, ChatState, ModelRef};
 use kd_commands::{Command, Keymap, Os, Page};
+use kd_formats::md::templates::{self, Kind as TemplateKind};
+use kd_markdown::{MarkdownEvent, MarkdownView};
 use kd_store::{
     DocGroup, DocKind, FileEntry, HomeState, InstalledApp, ModuleKind, OfficeKind, Store, ThemePref, create_new_document,
     create_office_document, list_documents, list_subfolders, now,
@@ -55,12 +57,32 @@ pub struct OpenMenu {
 /// A question about files and folders, as GenOffice asks them.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Dialog {
-    NewFolder { parent: PathBuf },
-    RenameFolder { dir: PathBuf },
-    RenameFile { path: PathBuf },
-    DeleteFolder { dir: PathBuf },
-    TrashFile { path: PathBuf },
-    Missing { path: PathBuf },
+    NewFolder {
+        parent: PathBuf,
+    },
+    RenameFolder {
+        dir: PathBuf,
+    },
+    RenameFile {
+        path: PathBuf,
+    },
+    DeleteFolder {
+        dir: PathBuf,
+    },
+    TrashFile {
+        path: PathBuf,
+    },
+    Missing {
+        path: PathBuf,
+    },
+    /// Closing a tab with unsaved changes.
+    Unsaved {
+        path: PathBuf,
+    },
+    /// File › Save as template: the template's name.
+    SaveTemplate {
+        kind: TemplateKind,
+    },
 }
 
 pub use crate::settings_state::SettingsUi;
@@ -93,6 +115,8 @@ pub struct KadeeApp {
     pub menu: Option<OpenMenu>,
     menu_closed: Option<(MenuKind, Instant)>,
     pub dialog: Option<Dialog>,
+    /// The Kadee Markdown editors of open `.md` tabs.
+    pub md: HashMap<PathBuf, Entity<MarkdownView>>,
     pub toast: Option<(SharedString, Instant)>,
     // inputs
     pub search: Entity<TextInput>,
@@ -215,6 +239,7 @@ impl KadeeApp {
             menu: None,
             menu_closed: None,
             dialog: None,
+            md: HashMap::new(),
             toast: None,
             search,
             composer,
@@ -406,6 +431,12 @@ impl KadeeApp {
             Dialog::NewFolder { .. } => Some("New folder".to_string()),
             Dialog::RenameFolder { dir } => Some(file_name(dir)),
             Dialog::RenameFile { path } => Some(path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()),
+            Dialog::SaveTemplate { .. } => Some(
+                self.active_markdown()
+                    .and_then(|v| v.read(cx).path.clone())
+                    .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
+                    .unwrap_or_else(|| "My template".into()),
+            ),
             _ => None,
         };
         if let Some(name) = name {
@@ -456,6 +487,10 @@ impl KadeeApp {
                             *t = to.clone();
                         }
                     }
+                    if let Some(v) = self.md.remove(path) {
+                        v.update(cx, |v, _| v.path = Some(to.clone()));
+                        self.md.insert(to.clone(), v);
+                    }
                     self.save(cx);
                     Ok(())
                 }
@@ -474,7 +509,7 @@ impl KadeeApp {
                 Ok(()) => {
                     self.state.library.forget(path);
                     if let Some(i) = self.tabs.iter().position(|t| t == path) {
-                        self.close_tab(i + 1, window, cx);
+                        self.discard_tab(i + 1, window, cx);
                     }
                     self.save(cx);
                     self.notify(format!("Moved “{}” to the Trash", file_name(path)), cx);
@@ -487,6 +522,13 @@ impl KadeeApp {
                 self.save(cx);
                 Ok(())
             }
+            Dialog::Unsaved { path } => {
+                if let Some(i) = self.tabs.iter().position(|t| t == path) {
+                    self.discard_tab(i + 1, window, cx);
+                }
+                Ok(())
+            }
+            Dialog::SaveTemplate { kind } => self.save_template(&name, *kind, cx),
         };
         match result {
             Ok(()) => {
@@ -510,22 +552,269 @@ impl KadeeApp {
         }
         self.state.library.touch(&path, now());
         self.save(cx);
+        if is_markdown(&path) && !self.md.contains_key(&path) {
+            match std::fs::read_to_string(&path) {
+                Ok(text) => {
+                    let view = self.markdown_view(&text, path.clone(), window, cx);
+                    self.md.insert(path.clone(), view);
+                }
+                Err(e) => {
+                    self.notify(format!("Could not read “{}”: {e}", file_name(&path)), cx);
+                    return;
+                }
+            }
+        }
         if let Some(i) = self.tabs.iter().position(|p| *p == path) {
             self.active = i + 1;
         } else {
-            self.tabs.push(path);
+            self.tabs.push(path.clone());
             self.active = self.tabs.len();
         }
         self.close_settings(true, cx);
         self.sync_composer(window, cx);
+        if let Some(v) = self.md.get(&path) {
+            v.read(cx).focus_editor(window, cx);
+        }
         cx.notify();
+    }
+
+    /// A Kadee Markdown editor for `path`, its events wired to the app.
+    fn markdown_view(&mut self, text: &str, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Entity<MarkdownView> {
+        let view = cx.new(|cx| MarkdownView::new(text, Some(path), window, cx));
+        let sub = cx.subscribe_in(&view, window, |this, _view, e: &MarkdownEvent, window, cx| match e {
+            MarkdownEvent::Changed => cx.notify(),
+            MarkdownEvent::Toast(m) => this.notify(m.clone(), cx),
+            MarkdownEvent::Host(id) => this.markdown_command(id, window, cx),
+        });
+        self._subscriptions.push(sub);
+        view
+    }
+
+    /// The editor of the tab on screen, when it is a Markdown document.
+    pub fn active_markdown(&self) -> Option<Entity<MarkdownView>> {
+        let path = self.tabs.get(self.active.checked_sub(1)?)?;
+        self.md.get(path).cloned()
+    }
+
+    /// Whether the document in tab `path` has unsaved changes.
+    pub fn is_unsaved(&self, path: &Path, cx: &App) -> bool {
+        self.md.get(path).is_some_and(|v| v.read(cx).is_dirty(cx))
+    }
+
+    /// Commands of Kadee Markdown that the app runs (files, theme, KaDee AI).
+    fn markdown_command(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let cmd = match id {
+            "file.new" => Command::NewDocumentPicker,
+            "file.newBlank" | "file.newDeck" => Command::NewDocument(ModuleKind::Markdown),
+            "file.open" => Command::OpenDialog,
+            "file.save" => Command::Save,
+            "file.saveAs" => Command::SaveAs,
+            "file.close" => Command::CloseActiveTab,
+            "file.options" => Command::OpenSettings(kd_commands::SettingsSection::General),
+            "view.light" | "view.dark" | "view.system" => {
+                self.state.settings.theme = match id {
+                    "view.light" => ThemePref::Light,
+                    "view.dark" => ThemePref::Dark,
+                    _ => ThemePref::System,
+                };
+                Theme::apply(self.state.settings.theme, cx);
+                self.save(cx);
+                cx.notify();
+                return;
+            }
+            "ai.ask" => {
+                self.ai_pane = true;
+                self.sync_composer(window, cx);
+                self.composer.read(cx).focus(window);
+                cx.notify();
+                return;
+            }
+            "help.markdown" => {
+                if let Some(t) = templates::built_in("welcome") {
+                    self.new_from_template("Markdown guide", t.source, window, cx);
+                }
+                return;
+            }
+            "file.saveTemplate" => {
+                if let Some(v) = self.active_markdown() {
+                    let kind = templates::kind_for(&v.read(cx).text(cx));
+                    self.open_dialog(Dialog::SaveTemplate { kind }, window, cx);
+                }
+                return;
+            }
+            "template.use" => {
+                if let Some(v) = self.active_markdown() {
+                    let (text, name) = {
+                        let v = v.read(cx);
+                        let name = v.path.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+                        (v.text(cx), name)
+                    };
+                    self.new_from_template(&name, &text, window, cx);
+                }
+                return;
+            }
+            "file.info" => {
+                if let Some(v) = self.active_markdown() {
+                    let text = v.read(cx).text(cx);
+                    let words = kd_formats::md::word_count(&kd_formats::md::parse(&text));
+                    self.notify(format!("{words} words · {} characters", text.chars().count()), cx);
+                }
+                return;
+            }
+            _ => {
+                let label = kd_markdown::commands::get(id).map(|c| c.label.trim_end_matches('…')).unwrap_or(id);
+                self.notify(format!("{label} comes in a later version of Kadee Markdown."), cx);
+                return;
+            }
+        };
+        self.run(cmd, window, cx);
+    }
+
+    /// Save the Markdown document on screen; with `as_new` (or never saved), ask where.
+    fn save_markdown(&mut self, view: Entity<MarkdownView>, as_new: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let current = view.read(cx).path.clone();
+        match current {
+            Some(path) if !as_new => {
+                let text = view.read(cx).text(cx);
+                match write_atomic(&path, &text) {
+                    Ok(()) => {
+                        view.update(cx, |v, cx| v.mark_saved(None, cx));
+                        self.state.library.touch(&path, now());
+                        self.save(cx);
+                        self.refresh();
+                        self.notify(format!("Saved “{}”", file_name(&path)), cx);
+                    }
+                    Err(e) => self.notify(format!("Could not save: {e}"), cx),
+                }
+            }
+            _ => {
+                let dir = current.as_ref().and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_else(|| self.target_dir());
+                let name = current
+                    .as_ref()
+                    .and_then(|p| p.file_name())
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "Untitled.md".into());
+                let rx = cx.prompt_for_new_path(&dir, Some(&name));
+                cx.spawn_in(window, async move |this, cx| {
+                    let Ok(Ok(Some(path))) = rx.await else { return };
+                    let path = if path.extension().is_none() { path.with_extension("md") } else { path };
+                    let _ = this.update_in(cx, |this, window, cx| {
+                        let text = view.read(cx).text(cx);
+                        if let Err(e) = write_atomic(&path, &text) {
+                            this.notify(format!("Could not save: {e}"), cx);
+                            return;
+                        }
+                        let old = view.read(cx).path.clone();
+                        view.update(cx, |v, cx| v.mark_saved(Some(path.clone()), cx));
+                        if let Some(old) = old.filter(|o| *o != path) {
+                            this.md.remove(&old);
+                            if let Some(t) = this.tabs.iter_mut().find(|t| **t == old) {
+                                *t = path.clone();
+                            }
+                        }
+                        this.md.insert(path.clone(), view.clone());
+                        this.state.library.touch(&path, now());
+                        this.save(cx);
+                        this.refresh();
+                        this.sync_composer(window, cx);
+                        this.notify(format!("Saved “{}”", file_name(&path)), cx);
+                    });
+                })
+                .detach();
+            }
+        }
+    }
+
+    // ---- templates (.mdd documents, .mds slide decks) ----------------------------------------
+
+    /// Where the user's own templates are saved.
+    pub fn my_templates_dir(&self) -> PathBuf {
+        self.store.dir().join("templates")
+    }
+
+    /// The folders templates are listed from: ours, then MdCraft's (read as is).
+    pub fn template_dirs(&self) -> Vec<PathBuf> {
+        let mut dirs = vec![self.my_templates_dir()];
+        if let Some(base) = directories::BaseDirs::new() {
+            dirs.push(base.config_dir().join("mdcraft").join("templates"));
+        }
+        dirs
+    }
+
+    pub fn user_templates(&self) -> Vec<templates::UserTemplate> {
+        templates::user_templates(&self.template_dirs())
+    }
+
+    /// A new document from a template: the placeholders filled in, saved next to the other new
+    /// documents and opened.
+    pub fn new_from_template(&mut self, name: &str, source: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let vars = templates::Vars::today(&self.state.settings.display_name);
+        let text = templates::fill(source, &vars);
+        let dir = self.target_dir();
+        let path = kd_store::unique_path(&dir, &templates::document_name(name), "md");
+        match std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, text)) {
+            Ok(()) => {
+                self.refresh();
+                self.open_path(path, window, cx);
+            }
+            Err(e) => self.notify(format!("Could not create the document: {e}"), cx),
+        }
+    }
+
+    /// A new template of `kind` in the templates folder, opened to edit.
+    pub fn new_template(&mut self, kind: TemplateKind, window: &mut Window, cx: &mut Context<Self>) {
+        let id = if kind == TemplateKind::Document { "blank" } else { "blank-deck" };
+        let source = templates::built_in(id).map(|t| t.source).unwrap_or("# Title\n");
+        let dir = self.my_templates_dir();
+        let base = if kind == TemplateKind::Document { "New document template" } else { "New slide deck template" };
+        let path = kd_store::unique_path(&dir, base, kind.extension());
+        match std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, source)) {
+            Ok(()) => self.open_path(path, window, cx),
+            Err(e) => self.notify(format!("Could not create the template: {e}"), cx),
+        }
+    }
+
+    /// File › Save as template: the document on screen into the templates folder.
+    fn save_template(&mut self, name: &str, kind: TemplateKind, cx: &mut Context<Self>) -> Result<(), String> {
+        let Some(view) = self.active_markdown() else { return Err("Open a Markdown document first".into()) };
+        let name = templates::document_name(name);
+        let dir = self.my_templates_dir();
+        let path = dir.join(format!("{name}.{}", kind.extension()));
+        let text = view.read(cx).text(cx);
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        write_atomic(&path, &text).map_err(|e| e.to_string())?;
+        self.notify(format!("Saved the template “{name}” ({})", kind.label().to_lowercase()), cx);
+        Ok(())
+    }
+
+    /// KaDee AI's "Insert into document": the answer at the cursor of the Markdown tab on screen.
+    pub fn insert_into_document(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(v) = self.active_markdown() {
+            v.update(cx, |v, cx| v.insert_text(text, window, cx));
+            self.notify("Inserted into the document", cx);
+        }
     }
 
     fn close_tab(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
         if n == 0 || n > self.tabs.len() {
             return;
         }
+        if self.is_unsaved(&self.tabs[n - 1], cx) {
+            let path = self.tabs[n - 1].clone();
+            self.active = n;
+            self.open_dialog(Dialog::Unsaved { path }, window, cx);
+            return;
+        }
+        self.discard_tab(n, window, cx);
+    }
+
+    /// Close tab `n` without asking.
+    fn discard_tab(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if n == 0 || n > self.tabs.len() {
+            return;
+        }
         let path = self.tabs.remove(n - 1);
+        self.md.remove(&path);
         if let Some(c) = self.chats.remove(&path.display().to_string()) {
             c.stop();
         }
@@ -588,10 +877,19 @@ impl KadeeApp {
     pub fn send_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let key = self.chat_key();
         let file = (!key.is_empty()).then(|| PathBuf::from(&key));
-        let context = match &file {
-            Some(f) => kd_ai::file_context(f, kd_ai::CONTEXT_BUDGET),
-            None if self.chat(&key).use_starred => kd_ai::starred_context(&self.state.library.starred, kd_ai::CONTEXT_BUDGET),
-            None => None,
+        let editor = self.active_markdown().map(|v| v.read(cx).context_text(cx));
+        let context = match (&file, editor) {
+            (Some(f), Some((text, selected))) => {
+                let whole = self.active_markdown().map(|v| v.read(cx).text(cx)).unwrap_or_default();
+                let mut c = kd_ai::text_context(&file_name(f), &whole, kd_ai::CONTEXT_BUDGET);
+                if selected {
+                    c.push_str(&format!("\nThe user has selected this part of it:\n=== selection ===\n{text}\n"));
+                }
+                Some(c)
+            }
+            (Some(f), None) => kd_ai::file_context(f, kd_ai::CONTEXT_BUDGET),
+            (None, _) if self.chat(&key).use_starred => kd_ai::starred_context(&self.state.library.starred, kd_ai::CONTEXT_BUDGET),
+            (None, _) => None,
         };
         let text = self.composer.read(cx).text().to_string();
         let hub = self.hub.clone();
@@ -706,9 +1004,11 @@ impl KadeeApp {
             Command::OpenModule(kind) => self.notify(format!("{} arrives in Phase {}", kind.name(), kind.phase()), cx),
             Command::OpenDialog => self.prompt_open(window, cx),
             Command::OpenPath(path) => self.open_path(path, window, cx),
-            Command::Save | Command::SaveAs | Command::Print => {
-                self.notify("Nothing to save here yet: the editors arrive in the next versions", cx)
-            }
+            Command::Save | Command::SaveAs => match self.active_markdown() {
+                Some(v) => self.save_markdown(v, cmd == Command::SaveAs, window, cx),
+                None => self.notify("Nothing to save here: open a Markdown document to edit it", cx),
+            },
+            Command::Print => self.notify("Printing comes in a later version", cx),
             Command::DeleteFile(path) => {
                 let d = if path.exists() { Dialog::TrashFile { path } } else { Dialog::Missing { path } };
                 self.open_dialog(d, window, cx)
@@ -934,6 +1234,23 @@ pub fn app_kind_of(path: &Path) -> Option<AppKind> {
         DocGroup::Report => Some(AppKind::Report),
         _ => None,
     }
+}
+
+/// Whether Kadee Markdown edits `path`.
+pub fn is_markdown(path: &Path) -> bool {
+    DocKind::from_path(path).is_some_and(|k| k.opener == kd_store::Opener::Module(ModuleKind::Markdown))
+}
+
+/// Write `text` to `path` through a temporary file next to it, so a failed write never leaves
+/// half a document.
+pub fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
+    let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "document".into());
+    let tmp = dir.join(format!(".{name}.kadee-tmp"));
+    std::fs::write(&tmp, text)?;
+    std::fs::rename(&tmp, path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })
 }
 
 pub fn file_name(p: &Path) -> String {

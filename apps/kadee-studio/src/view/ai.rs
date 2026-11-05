@@ -68,13 +68,14 @@ pub fn pane(app: &mut KadeeApp, window: &mut Window, cx: &mut Context<KadeeApp>)
         )
         .child(icon_button("ai-close", Icon::X, 28.0, &pal).tooltip(tooltip("Hide KaDee AI")).on_click(on_cmd(Command::ToggleAiPane, cx)));
 
+    let can_insert = app.active_markdown().is_some();
     let mut body = div().flex().flex_col().px(px(16.0)).py(px(16.0));
     if empty {
         body = body.child(welcome(app, model.is_none(), file.as_deref(), &pal, cx));
     } else {
         let n = messages.len();
         for (i, m) in messages.iter().enumerate() {
-            body = body.child(bubble(i, m, running && i + 1 == n, &pal, cx));
+            body = body.child(bubble(i, m, running && i + 1 == n, can_insert, &pal, cx));
         }
         if let Some(s) = status {
             body = body.child(div().text_size(px(12.5)).text_color(pal.text_faint).child(s));
@@ -305,7 +306,7 @@ fn welcome(app: &KadeeApp, no_model: bool, file: Option<&std::path::Path>, pal: 
     col.into_any_element()
 }
 
-fn bubble(i: usize, m: &ChatMessage, streaming: bool, pal: &Palette, cx: &mut Context<KadeeApp>) -> AnyElement {
+fn bubble(i: usize, m: &ChatMessage, streaming: bool, can_insert: bool, pal: &Palette, cx: &mut Context<KadeeApp>) -> AnyElement {
     match m.speaker {
         Speaker::User => div()
             .flex()
@@ -377,6 +378,26 @@ fn bubble(i: usize, m: &ChatMessage, streaming: bool, pal: &Palette, cx: &mut Co
                                         cx.write_to_clipboard(ClipboardItem::new_string(text.clone()));
                                         this.notify("Answer copied", cx);
                                     })),
+                            )
+                        })
+                        .when(can_insert && !m.error && !m.text.is_empty(), |d| {
+                            let text = m.text.clone();
+                            d.child(
+                                div()
+                                    .id(("ai-insert", i))
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(4.0))
+                                    .px(px(6.0))
+                                    .py(px(2.0))
+                                    .rounded(px(5.0))
+                                    .text_size(px(12.0))
+                                    .text_color(pal.accent)
+                                    .cursor_pointer()
+                                    .hover(move |s| s.bg(hover))
+                                    .child(icon(Icon::Plus, 12.0, pal.accent))
+                                    .child("Insert into document")
+                                    .on_click(cx.listener(move |this, _, window, cx| this.insert_into_document(&text, window, cx))),
                             )
                         }),
                 );

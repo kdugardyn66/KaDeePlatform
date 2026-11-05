@@ -18,7 +18,8 @@ pub fn tab_strip(app: &mut KadeeApp, _window: &mut Window, cx: &mut Context<Kade
     tabs = tabs.child(tab(0, None, "Home".into(), app.active == 0, false, &pal, cx));
     for (i, path) in app.tabs.iter().enumerate() {
         let Some(kind) = DocKind::from_path(path) else { continue };
-        tabs = tabs.child(tab(i + 1, Some(kind), file_name(path), app.active == i + 1, true, &pal, cx));
+        let name = if app.is_unsaved(path, cx) { format!("{} •", file_name(path)) } else { file_name(path) };
+        tabs = tabs.child(tab(i + 1, Some(kind), name, app.active == i + 1, true, &pal, cx));
     }
     let new_tip = match app.shortcut(&Command::NewDocumentPicker) {
         Some(k) => format!("New document ({k})"),

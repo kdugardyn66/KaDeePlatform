@@ -257,6 +257,24 @@ pub fn dialog(app: &mut KadeeApp, _window: &mut Window, cx: &mut Context<KadeeAp
             true,
             false,
         ),
+        Dialog::SaveTemplate { kind } => (
+            "Save as template".into(),
+            format!("A {} (.{}) in your templates folder. It shows on the New page.", kind.label().to_lowercase(), kind.extension()),
+            "Save template",
+            false,
+            true,
+        ),
+        Dialog::Unsaved { path } => (
+            "Unsaved changes".into(),
+            format!(
+                "“{}” has changes that are not saved. Close it anyway and lose them? To keep them, choose Cancel and save ({}).",
+                file_name(path),
+                if cfg!(target_os = "macos") { "⌘S" } else { "Ctrl+S" }
+            ),
+            "Close without saving",
+            true,
+            false,
+        ),
     };
     let input = asks_name.then(|| {
         div()

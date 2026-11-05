@@ -13,6 +13,9 @@ kd-commands.workspace = true
 kd-store.workspace = true
 kd-ai.workspace = true
 kd-ui.workspace = true
+kd-markdown.workspace = true
+kd-formats.workspace = true
+directories.workspace = true
 gpui.workspace = true
 chrono.workspace = true
 # Delete file / Delete folder: to the Trash or Recycle Bin.

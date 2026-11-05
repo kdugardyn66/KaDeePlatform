@@ -72,6 +72,7 @@ pub fn gpui_sequence(keys: &[Chord]) -> String {
 pub fn bind(keymap: &Keymap, cx: &mut App) {
     cx.clear_key_bindings();
     kd_ui::input::bind_keys(cx);
+    kd_markdown::init(cx);
     let mut bindings: Vec<KeyBinding> = keymap
         .bindings
         .iter()

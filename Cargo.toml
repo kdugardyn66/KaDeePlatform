@@ -5,11 +5,14 @@ members = [
     "crates/kd-store",
     "crates/kd-ai",
     "crates/kd-ui",
+    "crates/kd-doc",
+    "crates/kd-formats",
+    "crates/kd-markdown",
     "apps/kadee-studio",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 authors = ["Kris Dugardyn"]
@@ -21,6 +24,9 @@ kd-commands = { path = "crates/kd-commands" }
 kd-store = { path = "crates/kd-store" }
 kd-ai = { path = "crates/kd-ai" }
 kd-ui = { path = "crates/kd-ui" }
+kd-doc = { path = "crates/kd-doc" }
+kd-formats = { path = "crates/kd-formats" }
+kd-markdown = { path = "crates/kd-markdown" }
 gpui = "0.2.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

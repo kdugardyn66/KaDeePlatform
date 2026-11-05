@@ -1,0 +1,17 @@
+[package]
+name = "kd-formats"
+description = "kd-formats: file formats. Markdown (comrak): parsing for the preview, outline, word count, source highlighting and MdCraft's editing operations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kd-doc.workspace = true
+comrak = { version = "0.56", default-features = false, features = ["shortcodes"] }
+chrono.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

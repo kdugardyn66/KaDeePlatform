@@ -41,7 +41,7 @@ craft_icons!(
 
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
-        Ok(kd_ui::icons::load(path).or_else(|| craft_icon(path)).map(Cow::Borrowed))
+        Ok(kd_ui::icons::load(path).or_else(|| kd_markdown::icons::load(path)).or_else(|| craft_icon(path)).map(Cow::Borrowed))
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {

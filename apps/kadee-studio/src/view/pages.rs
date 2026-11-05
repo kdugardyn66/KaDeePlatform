@@ -36,12 +36,15 @@ pub fn new_page(app: &mut KadeeApp, cx: &mut Context<KadeeApp>) -> impl IntoElem
         office =
             office.child(new_row(("office", i), badge, format!("New {}", office_label(kind)), sub, key, &pal).on_click(on_cmd(cmd, cx)));
     }
+    let templates = templates_section(app, &pal, cx);
     content_column("new-scroll", &pal).child(
         column()
             .child(page_title("New document", format!("New documents go into “{}”", file_name(&dir)), &pal))
             .child(section_title("KadeeStudio", None, &pal))
             .child(div().h(px(12.0)))
             .child(kadee)
+            .child(div().h(px(30.0)))
+            .child(templates)
             .child(div().h(px(30.0)))
             .child(section_title("Office documents", Some("blank files for WordCraft, GridCraft and DeckCraft".into()), &pal))
             .child(div().h(px(12.0)))
@@ -320,4 +323,139 @@ fn text_preview(path: &Path) -> Option<String> {
         return None;
     }
     std::fs::read_to_string(path).ok()
+}
+
+/// Markdown templates: the built-in documents and slide decks, and the user's own (`.mdd`, `.mds`).
+fn templates_section(app: &mut KadeeApp, pal: &Palette, cx: &mut Context<KadeeApp>) -> impl IntoElement {
+    use kd_formats::md::{library, templates};
+    let card = |i: usize, t: &'static templates::Template, cx: &mut Context<KadeeApp>| {
+        let colors = library::theme(t.theme).map(|th| th.colors).unwrap_or([0x1f2328, 0x2f5dd6, 0xf2f2f2]);
+        let (hover_bg, hover_border) = (pal.surface_hover, pal.border_strong);
+        let deck = t.kind == templates::Kind::Presentation;
+        let preview = div()
+            .h(px(64.0))
+            .rounded(px(6.0))
+            .border_1()
+            .border_color(pal.border)
+            .bg(if deck { gpui::rgb(colors[0]) } else { gpui::rgb(0xffffff) })
+            .px(px(10.0))
+            .py(px(8.0))
+            .flex()
+            .flex_col()
+            .justify_between()
+            .child(
+                div()
+                    .text_size(px(13.0))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(gpui::rgb(if deck { colors[2] } else { colors[0] }))
+                    .child(kd_ui::truncate(t.name, 26)),
+            )
+            .child(div().flex().gap(px(3.0)).children(colors.map(|c| div().flex_1().h(px(5.0)).rounded(px(1.0)).bg(gpui::rgb(c)))));
+        div()
+            .id(("tpl", i))
+            .p(px(10.0))
+            .flex()
+            .flex_col()
+            .gap(px(8.0))
+            .rounded(px(10.0))
+            .bg(pal.surface)
+            .border_1()
+            .border_color(pal.border)
+            .cursor_pointer()
+            .hover(move |s| s.bg(hover_bg).border_color(hover_border))
+            .child(preview)
+            .child(div().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child(t.name))
+            .child(div().text_size(px(12.0)).text_color(pal.text_muted).line_height(px(16.0)).child(t.description))
+            .on_click(cx.listener(move |this, _, window, cx| this.new_from_template(t.name, t.source, window, cx)))
+    };
+    let mut docs = div().grid().grid_cols(4).gap(px(12.0));
+    let mut decks = div().grid().grid_cols(4).gap(px(12.0));
+    for (i, t) in templates::BUILT_IN.iter().enumerate() {
+        if t.kind == templates::Kind::Document {
+            docs = docs.child(card(i, t, cx));
+        } else {
+            decks = decks.child(card(i, t, cx));
+        }
+    }
+    let mine = app.user_templates();
+    let mut my_rows = div().flex().flex_col().gap(px(8.0));
+    if mine.is_empty() {
+        my_rows = my_rows.child(
+            div()
+                .text_size(px(13.0))
+                .text_color(pal.text_muted)
+                .child("None yet. Make one below, or save any Markdown document with File › Save as template in Kadee Markdown."),
+        );
+    }
+    for (i, t) in mine.into_iter().enumerate() {
+        let (path_use, path_edit) = (t.path.clone(), t.path.clone());
+        let name = t.name.clone();
+        let ext = t.kind.extension();
+        my_rows = my_rows.child(
+            div()
+                .id(("my-tpl", i))
+                .h(px(48.0))
+                .px(px(14.0))
+                .flex()
+                .items_center()
+                .gap(px(12.0))
+                .rounded(px(8.0))
+                .bg(pal.surface)
+                .border_1()
+                .border_color(pal.border)
+                .child(kd_ui::badge(ext.to_uppercase(), 30.0, pal.accent, pal))
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .child(div().text_size(px(13.5)).child(t.name.clone()))
+                        .child(div().text_size(px(11.5)).text_color(pal.text_faint).child(t.kind.label())),
+                )
+                .child(primary_button(("my-tpl-use", i), "Use", pal).on_click(cx.listener(move |this, _, window, cx| {
+                    match std::fs::read_to_string(&path_use) {
+                        Ok(src) => this.new_from_template(&name, &src, window, cx),
+                        Err(e) => this.notify(format!("Could not read the template: {e}"), cx),
+                    }
+                })))
+                .child(
+                    button(("my-tpl-edit", i), "Edit", pal)
+                        .on_click(cx.listener(move |this, _, window, cx| this.open_path(path_edit.clone(), window, cx))),
+                ),
+        );
+    }
+    let dir = app.my_templates_dir();
+    div()
+        .flex()
+        .flex_col()
+        .child(section_title("Markdown documents", Some("from a template".into()), pal))
+        .child(div().h(px(12.0)))
+        .child(docs)
+        .child(div().h(px(26.0)))
+        .child(section_title("Markdown slide decks", Some("from a template".into()), pal))
+        .child(div().h(px(12.0)))
+        .child(decks)
+        .child(div().h(px(26.0)))
+        .child(section_title("My templates", Some(".mdd documents and .mds slide decks".into()), pal))
+        .child(div().h(px(12.0)))
+        .child(my_rows)
+        .child(div().h(px(12.0)))
+        .child(
+            div()
+                .flex()
+                .gap(px(10.0))
+                .child(
+                    button("tpl-new-doc", "New document template", pal).on_click(
+                        cx.listener(|this, _, window, cx| this.new_template(kd_formats::md::templates::Kind::Document, window, cx)),
+                    ),
+                )
+                .child(button("tpl-new-deck", "New slide deck template", pal).on_click(
+                    cx.listener(|this, _, window, cx| this.new_template(kd_formats::md::templates::Kind::Presentation, window, cx)),
+                ))
+                .child(button("tpl-folder", "Show templates folder", pal).on_click(cx.listener(move |this, _, _, cx| {
+                    let _ = std::fs::create_dir_all(&dir);
+                    cx.reveal_path(&dir);
+                    let _ = this;
+                }))),
+        )
 }

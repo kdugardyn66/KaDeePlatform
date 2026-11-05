@@ -2,11 +2,24 @@
 
 A native office, creative and BI suite in Rust, drawn on the GPU with [GPUI](https://gpui.rs), with KaDee AI in every module. Native apps on macOS, Linux and Windows, a Docker stack for collaboration, SDKs, and AI.
 
-**Status — v0.1.0: KadeeStudio's start screen, standalone ("Solo, no server").** The first screen of the platform, ported from KadeeStudio 0.3.1 (egui) to GPUI, with KaDee AI. The editors arrive module by module; the team server follows ("Team, docker compose").
+**Status — v0.2 in progress: Kadee Markdown.** v0.1.0 brought KadeeStudio's start screen with KaDee AI, standalone ("Solo, no server"). v0.2 rebuilds MdCraft natively in GPUI: `.md` files now open in Kadee Markdown, with MdCraft's ribbon, a GPUI source editor, a native preview and KaDee AI in place of MdCraft's AI layer. The other editors arrive module by module; the team server follows ("Team, docker compose").
 
 ![KadeeStudio 0.1.0 start screen](docs/screenshots/home-dark.png)
 
 ![KaDee AI in the pane on the right](docs/screenshots/kadee-ai.png)
+
+![Kadee Markdown: MdCraft's ribbon, the editor and the preview](docs/screenshots/kadee-markdown.png)
+
+![Kadee Markdown: a slide deck from a template](docs/screenshots/kadee-markdown-slides.png)
+
+## Kadee Markdown (0.2, in progress)
+
+- Opens every `.md` file in its tab: MdCraft's **ribbon** (File, Home, Insert, Design, Slides, Review, View and the contextual Table tab, with split buttons, menus and galleries), **command search**, a **source editor** with Markdown colours, a **native preview** side by side (Write / Split / Read), the **navigation pane** and the **status bar**.
+- Every button is a command with MdCraft's id, label and shortcut; the ones not yet rebuilt say so.
+- `Cmd+S` / `Ctrl+S` saves; tabs with unsaved changes show • and ask before closing.
+- **KaDee AI** replaces MdCraft's AI layer: it reads the document as it is on screen (and the selection) and every answer can be **inserted into the document**.
+- **File types**: `.md` and `.markdown` documents, `.mdd` document templates and `.mds` slide deck templates (New page › templates, File › Save as template).
+- Find / Replace, Go to line, fonts and colours, slides with a full-screen slide show, charts and Mermaid flowcharts, pie, sequence and Gantt diagrams drawn natively, math as Unicode, print / PDF / HTML export, accessibility check.
 
 ## What 0.1.0 does
 
@@ -71,6 +84,9 @@ kadee-platform/
 │  ├─ kd-commands/      every action as a Command with a stable id; key maps and sequences
 │  ├─ kd-ui/            GPUI design tokens, light and dark themes, icons, text input, widgets
 │  ├─ kd-ai/            KaDee AI: providers, catalogue, streaming chat, tools (from kadee-ai)
+│  ├─ kd-doc/           a document's text, selection and grouped undo/redo
+│  ├─ kd-formats/       Markdown (MdCraft's dialect): parsing, editing operations, highlighting, libraries
+│  ├─ kd-markdown/      Kadee Markdown in GPUI: editor, preview, MdCraft's ribbon, commands and icons
 │  └─ kd-store/         catalogues, Recent/Starred (SQLite), home.json, file helpers (from kadee-core)
 ├─ assets/app-icon/     the KadeeStudio icon
 ├─ scripts/             build-macos.sh, build-linux.sh, build-windows.ps1 (and build.sh at the top)
@@ -78,7 +94,7 @@ kadee-platform/
 └─ docs/                architecture notes and the roadmap
 ```
 
-The rule from KadeeStudio carries over: core crates never depend on the UI (only `kd-ui` uses GPUI), and every click or shortcut becomes a `Command`. The remaining crates of the architecture (`kd-doc`, `kd-formats`, `kd-calc`, `kd-render`, `kd-sync`, `kd-plugin`, `kd-sdk`), the server and the SDKs arrive with the modules that need them — see [docs/ROADMAP.md](docs/ROADMAP.md).
+The rule from KadeeStudio carries over: core crates never depend on the UI (only `kd-ui` and the editor crates such as `kd-markdown` use GPUI), and every click or shortcut becomes a `Command`. The remaining crates of the architecture (`kd-calc`, `kd-render`, `kd-sync`, `kd-plugin`, `kd-sdk`), the server and the SDKs arrive with the modules that need them — see [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Licence
 

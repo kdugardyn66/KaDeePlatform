@@ -1,0 +1,21 @@
+[package]
+name = "kd-markdown"
+description = "Kadee Markdown: the native GPUI rebuild of MdCraft (source editor, preview, ribbon) with KaDee AI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gpui.workspace = true
+kd-ui.workspace = true
+kd-doc.workspace = true
+kd-formats.workspace = true
+unicode-segmentation = "1"
+chrono.workspace = true
+kd-store.workspace = true
+# diagrams: SVG drawn into a bitmap here (GPUI 0.2's own SVG images come out with red and blue swapped)
+resvg = { version = "0.45", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
+image = { version = "0.25", default-features = false }
+smallvec = "1"
