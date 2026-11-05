@@ -4,4 +4,5 @@
 //! word count, source highlighting for the editor, MdCraft's editing operations and its content
 //! libraries. OOXML, ODF, PDF, JSON, XML and CSV come with their modules.
 
+pub mod export;
 pub mod md;

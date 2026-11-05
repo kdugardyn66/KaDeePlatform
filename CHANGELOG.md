@@ -30,6 +30,17 @@ Kadee Markdown: MdCraft rebuilt natively in GPUI and opened in KadeeStudio's tab
 - **View**: drag the divider between editor and preview (double-click resets), Page width.
 - Not yet: spelling, KaTeX/MathJax-quality math, running code chunks, the remaining Mermaid diagram kinds (class, state, ER, mind map, timeline, journey, quadrant, git graph), Graphviz, PlantUML and WaveDrom.
 
+**File ribbon and native converters**
+
+- **File tab as a ribbon**: *New…*, *Open…*, *Open Recent ›* | *Save*, *Save As ›* | *Export ›* | *Print* | *Close*.
+- **New…** shows the Markdown templates to choose from: the built-in documents and slide decks, and My templates.
+- **Open…** is a built-in file browser filtered on `.md` and `.markdown`: places (the document's folder, Documents, Home, Desktop, Downloads), breadcrumb, Up, folders first, double-click to open, and *System dialog…* as a fallback.
+- **Open Recent ›** lists the last 10 opened Markdown files, with *Clear Recent List*.
+- **Save As ›**: Markdown file (`.md`); document (`.docx`, `.odt`); slide deck (`.pptx`, `.odp`); portable document (`.pdf`); Markdown template document (`.mdd`); Markdown template slide deck (`.mds`). Saving to another format writes a copy and keeps the Markdown file open.
+- **Export ›** Webpage (HTML).
+- **Converters written in Rust** (`kd-formats::export`), no LibreOffice or browser needed: Word and OpenDocument text with headings, inline styles, links, lists, quotes, code, tables, pictures, diagrams and charts as pictures, page breaks, paper size, margins and fonts; PowerPoint and OpenDocument presentations with one slide per `---` (or per H1/H2 heading), titles, bullets, tables, pictures and speaker notes; PDF with its own layout, bookmarks-ready headings, links, pictures, page numbers and watermark.
+- `.mdp` is accepted as an alternative extension for slide deck templates.
+
 ## 0.1.0 — 2026-11-03
 
 The KaDee Platform's first version: KadeeStudio's start screen as a standalone GPUI app.

@@ -100,6 +100,11 @@ fn fragment(md: &str, opts: &HtmlOptions) -> String {
     html
 }
 
+/// The anchor of a heading, as GitHub (and comrak) make it: `Next steps!` → `next-steps`.
+pub fn anchor(text: &str) -> String {
+    Anchorizer::new().anchorize(text)
+}
+
 /// `[TOC]`: the headings (levels 1–3) as links.
 fn toc(md: &str) -> String {
     let mut a = Anchorizer::new();

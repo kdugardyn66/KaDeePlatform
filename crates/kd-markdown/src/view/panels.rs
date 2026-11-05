@@ -650,6 +650,80 @@ impl MarkdownView {
                         .into_any_element(),
                 )
             }
+            Menu::Recent => {
+                let (ic, ac) = icon_colors(pal);
+                let mut rows: Vec<AnyElement> = Vec::new();
+                for (i, p) in self.recent.iter().take(10).enumerate() {
+                    let path = p.clone();
+                    let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    let dir = p.parent().map(|d| d.to_string_lossy().to_string()).unwrap_or_default();
+                    rows.push(
+                        div()
+                            .id(("recent", i))
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .mx(px(4.0))
+                            .px(px(6.0))
+                            .py(px(4.0))
+                            .rounded(px(5.0))
+                            .cursor_pointer()
+                            .hover(|d| d.bg(pal.surface_hover))
+                            .child(md_icon("file-md", 18.0, ic, ac))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .flex()
+                                    .flex_col()
+                                    .child(div().text_size(px(13.0)).text_color(pal.text).child(name))
+                                    .child(div().text_size(px(11.0)).text_color(pal.text_muted).child(kd_ui::truncate(&dir, 60))),
+                            )
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.menu = None;
+                                cx.emit(super::MarkdownEvent::OpenPath(path.clone()));
+                                cx.notify();
+                            }))
+                            .into_any_element(),
+                    );
+                }
+                if rows.is_empty() {
+                    rows.push(
+                        div()
+                            .px(px(10.0))
+                            .py(px(6.0))
+                            .text_size(px(12.5))
+                            .text_color(pal.text_muted)
+                            .child("No Markdown files opened yet.")
+                            .into_any_element(),
+                    );
+                }
+                let empty = self.recent.is_empty();
+                rows.push(div().my(px(4.0)).h(px(1.0)).bg(pal.border).into_any_element());
+                rows.push(
+                    div()
+                        .id("recent-clear")
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .mx(px(4.0))
+                        .px(px(6.0))
+                        .py(px(4.0))
+                        .rounded(px(5.0))
+                        .text_size(px(13.0))
+                        .when(empty, |d| d.opacity(0.45))
+                        .when(!empty, |d| d.cursor_pointer().hover(|d| d.bg(pal.surface_hover)))
+                        .child(md_icon("x", 18.0, ic, ac))
+                        .child("Clear Recent List")
+                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                            if !empty {
+                                this.run("file.clearRecent", None, window, cx);
+                            }
+                        }))
+                        .into_any_element(),
+                );
+                Some(div().w(px(360.0)).flex().flex_col().child(header("Open Recent")).children(rows).into_any_element())
+            }
             Menu::Emoji => {
                 let cells: Vec<AnyElement> = ribbon::EMOJI
                     .split_whitespace()

@@ -1,6 +1,6 @@
 [package]
 name = "kd-formats"
-description = "kd-formats: file formats. Markdown (comrak): parsing for the preview, outline, word count, source highlighting and MdCraft's editing operations"
+description = "kd-formats: file formats. Markdown (comrak, MdCraft's dialect): parsing, editing, highlighting, diagrams, HTML; export to DOCX, ODT, PPTX, ODP and PDF"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,6 +12,11 @@ kd-doc.workspace = true
 comrak = { version = "0.56", default-features = false, features = ["shortcodes"] }
 chrono.workspace = true
 serde_json.workspace = true
+# export: OOXML / ODF packages, PDF streams, pictures and diagrams
+zip = { version = "2", default-features = false, features = ["deflate"] }
+flate2 = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+resvg = { version = "0.45", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
 
 [dev-dependencies]
 tempfile.workspace = true

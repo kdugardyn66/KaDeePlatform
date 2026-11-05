@@ -552,6 +552,7 @@ impl KadeeApp {
         }
         self.state.library.touch(&path, now());
         self.save(cx);
+        self.sync_markdown_recent(cx);
         if is_markdown(&path) && !self.md.contains_key(&path) {
             match std::fs::read_to_string(&path) {
                 Ok(text) => {
@@ -581,13 +582,40 @@ impl KadeeApp {
     /// A Kadee Markdown editor for `path`, its events wired to the app.
     fn markdown_view(&mut self, text: &str, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Entity<MarkdownView> {
         let view = cx.new(|cx| MarkdownView::new(text, Some(path), window, cx));
+        let (recent, dirs, docs) = (self.markdown_recent(), self.template_dirs(), self.state.settings.documents_dir.clone());
+        view.update(cx, |v, _| {
+            v.recent = recent;
+            v.template_dirs = dirs;
+            v.documents_dir = Some(docs);
+        });
         let sub = cx.subscribe_in(&view, window, |this, _view, e: &MarkdownEvent, window, cx| match e {
             MarkdownEvent::Changed => cx.notify(),
             MarkdownEvent::Toast(m) => this.notify(m.clone(), cx),
             MarkdownEvent::Host(id) => this.markdown_command(id, window, cx),
+            MarkdownEvent::OpenPath(p) => this.open_path(p.clone(), window, cx),
+            MarkdownEvent::NewFromTemplate { name, source } => this.new_from_template(name, source, window, cx),
         });
         self._subscriptions.push(sub);
         view
+    }
+
+    /// The last 10 Markdown files opened (File › Open Recent).
+    pub fn markdown_recent(&self) -> Vec<PathBuf> {
+        let mut r: Vec<&kd_store::RecentEntry> =
+            self.state.library.recent.iter().filter(|e| is_markdown(&e.path) && e.path.exists()).collect();
+        r.sort_by_key(|e| std::cmp::Reverse(e.opened));
+        r.into_iter().take(10).map(|e| e.path.clone()).collect()
+    }
+
+    /// Give every Markdown editor the current Recent list.
+    fn sync_markdown_recent(&mut self, cx: &mut Context<Self>) {
+        let recent = self.markdown_recent();
+        for v in self.md.values() {
+            v.update(cx, |v, cx| {
+                v.recent = recent.clone();
+                cx.notify();
+            });
+        }
     }
 
     /// The editor of the tab on screen, when it is a Markdown document.
@@ -627,6 +655,17 @@ impl KadeeApp {
                 self.sync_composer(window, cx);
                 self.composer.read(cx).focus(window);
                 cx.notify();
+                return;
+            }
+            "file.clearRecent" => {
+                let md: Vec<PathBuf> = self.state.library.recent.iter().filter(|e| is_markdown(&e.path)).map(|e| e.path.clone()).collect();
+                for p in md {
+                    self.state.library.remove_recent(&p);
+                }
+                self.save(cx);
+                self.sync_markdown_recent(cx);
+                self.refresh();
+                self.notify("Cleared the list of recent Markdown files", cx);
                 return;
             }
             "help.markdown" => {

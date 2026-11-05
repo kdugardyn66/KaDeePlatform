@@ -19,3 +19,6 @@ kd-store.workspace = true
 resvg = { version = "0.45", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
 image = { version = "0.25", default-features = false }
 smallvec = "1"
+
+[dev-dependencies]
+tempfile.workspace = true

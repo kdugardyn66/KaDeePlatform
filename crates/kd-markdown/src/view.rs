@@ -36,6 +36,10 @@ pub enum MarkdownEvent {
     Host(&'static str),
     /// A short message for the host's toast.
     Toast(String),
+    /// File › Open… or Open Recent: open this file.
+    OpenPath(PathBuf),
+    /// File › New…: a new document from this template.
+    NewFromTemplate { name: String, source: String },
 }
 
 /// The colours MdCraft's two-tone icons use.
@@ -104,8 +108,19 @@ pub struct MarkdownView {
     split: f32,
     dragging: bool,
     main_bounds: std::rc::Rc<std::cell::Cell<gpui::Bounds<Pixels>>>,
+    /// Set by the host: the last opened Markdown files, the template folders and the
+    /// documents folder (for Open Recent, New… and Open…).
+    pub recent: Vec<PathBuf>,
+    pub template_dirs: Vec<PathBuf>,
+    pub documents_dir: Option<PathBuf>,
+    /// File › New…: the template chooser is open.
+    chooser: bool,
+    /// File › Open…: the file browser.
+    browser: Option<files::Browser>,
     _subs: Vec<Subscription>,
 }
+
+mod files;
 
 mod panels;
 pub use panels::bind_present_keys;
@@ -208,6 +223,11 @@ impl MarkdownView {
             split: 0.5,
             dragging: false,
             main_bounds: std::rc::Rc::default(),
+            recent: Vec::new(),
+            template_dirs: Vec::new(),
+            documents_dir: None,
+            chooser: false,
+            browser: None,
             _subs: subs,
         };
         view.focus_editor(window, cx);
@@ -340,8 +360,8 @@ impl MarkdownView {
         let ed = self.editor.clone();
         match id {
             // the host's
-            "file.new" | "file.newBlank" | "file.newDeck" | "file.open" | "file.save" | "file.saveAs" | "file.saveTemplate"
-            | "template.use" | "file.close" | "file.info" | "file.options" | "view.light" | "view.dark" | "view.system" | "ai.ask"
+            "file.newBlank" | "file.newDeck" | "file.save" | "file.saveAs" | "file.saveTemplate" | "template.use" | "file.close"
+            | "file.clearRecent" | "file.info" | "file.options" | "view.light" | "view.dark" | "view.system" | "ai.ask"
             | "help.markdown" => cx.emit(MarkdownEvent::Host(id)),
             "file.print" | "file.exportPdf" => self.print(window, cx),
             "file.exportHtml" => self.export_html(window, cx),
@@ -350,7 +370,23 @@ impl MarkdownView {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(html));
                 self.toast("Copied as HTML: paste it into an e-mail or web editor's source view", cx);
             }
-            "file.backstage" => self.menu = Some(OpenMenu { menu: Menu::File, at: point(px(8.0), px(36.0)) }),
+            "file.backstage" => {
+                self.tab = TabId::File;
+                if self.collapsed {
+                    self.peek = true;
+                }
+            }
+            "file.new" => self.chooser = true,
+            "file.open" => self.open_browser(cx),
+            "file.recent" => self.open_menu_at(Menu::Recent, window.mouse_position(), window, cx),
+            "file.export" => self.open_menu_at(Menu::Export, window.mouse_position(), window, cx),
+            "file.saveAsFormat" => match arg.as_deref() {
+                Some("md") | None => cx.emit(MarkdownEvent::Host("file.saveAs")),
+                Some(ext) => {
+                    let ext = ext.to_string();
+                    self.save_copy_as(&ext, window, cx);
+                }
+            },
 
             "edit.undo" => ed.update(cx, |e, cx| e.undo(cx)),
             "edit.redo" => ed.update(cx, |e, cx| e.redo(cx)),
@@ -759,7 +795,7 @@ impl MarkdownView {
         let in_table = self.in_table(cx);
         let tabs: Vec<AnyElement> = ribbon::tabs()
             .into_iter()
-            .filter(|t| !t.contextual || in_table)
+            .filter(|t| t.id != TabId::File && (!t.contextual || in_table))
             .map(|t| {
                 let on = t.id == self.tab;
                 let id = t.id;
@@ -819,10 +855,8 @@ impl MarkdownView {
             .cursor_pointer()
             .hover(|d| d.opacity(0.92))
             .child("File")
-            .on_click(cx.listener(|this, e: &ClickEvent, _, cx| {
-                let _ = e;
-                this.open_menu(Menu::File, point(px(0.0), px(36.0)), cx);
-            }));
+            .when(self.tab == TabId::File, |d| d.border_b(px(3.0)).border_color(pal.on_accent))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.run("file.backstage", None, window, cx)));
         let focused = !self.search.read(cx).text().is_empty();
         let search = div()
             .relative()
@@ -1932,6 +1966,8 @@ impl Render for MarkdownView {
         let prompt = self.prompt_card(&pal, cx);
         let info = self.info_card(&pal, cx);
         let present = self.present_overlay(window, cx);
+        let chooser = self.chooser_card(&pal, cx);
+        let browser = self.browser_card(&pal, cx);
         let split = self.split;
         let editor_pane = (self.mode != ViewMode::Read).then(|| {
             div()
@@ -1981,6 +2017,17 @@ impl Render for MarkdownView {
             .bg(pal.canvas)
             .text_color(pal.text)
             .on_action(cx.listener(|this, a: &RunMd, window, cx| this.run(a.id, None, window, cx)))
+            .on_key_down(cx.listener(|this, e: &gpui::KeyDownEvent, window, cx| {
+                // Esc closes the File tab's windows and the cards
+                if e.keystroke.key == "escape" && (this.chooser || this.browser.is_some() || this.info.is_some()) {
+                    this.chooser = false;
+                    this.browser = None;
+                    this.info = None;
+                    this.focus_editor(window, cx);
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
             .children(tabstrip)
             .children(ribbon)
             .children(template)
@@ -2020,6 +2067,8 @@ impl Render for MarkdownView {
             .children(menu)
             .children(prompt)
             .children(info)
+            .children(chooser)
+            .children(browser)
             .children(present)
     }
 }

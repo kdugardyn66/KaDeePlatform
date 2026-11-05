@@ -203,7 +203,7 @@ fn readable(path: &std::path::Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
         matches!(
             e.to_ascii_lowercase().as_str(),
-            "md" | "markdown" | "mdd" | "mds" | "txt" | "html" | "htm" | "csv" | "json" | "kdash" | "kreport"
+            "md" | "markdown" | "mdd" | "mds" | "mdp" | "txt" | "html" | "htm" | "csv" | "json" | "kdash" | "kreport"
         )
     })
 }

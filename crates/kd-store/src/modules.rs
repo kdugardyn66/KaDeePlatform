@@ -24,11 +24,12 @@ impl ModuleKind {
     pub const TILES: [ModuleKind; 4] = [ModuleKind::Markdown, ModuleKind::Pdf, ModuleKind::Dashboard, ModuleKind::Report];
 
     /// Extensions owned by KadeeStudio's own modules.
-    pub const EXTENSIONS: [(&'static str, ModuleKind); 7] = [
+    pub const EXTENSIONS: [(&'static str, ModuleKind); 8] = [
         ("md", ModuleKind::Markdown),
         ("markdown", ModuleKind::Markdown),
         ("mdd", ModuleKind::Markdown),
         ("mds", ModuleKind::Markdown),
+        ("mdp", ModuleKind::Markdown),
         ("pdf", ModuleKind::Pdf),
         ("kdash", ModuleKind::Dashboard),
         ("kreport", ModuleKind::Report),

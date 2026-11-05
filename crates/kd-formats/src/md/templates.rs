@@ -23,7 +23,7 @@ impl Kind {
     pub fn from_extension(ext: &str) -> Option<Kind> {
         match ext.to_ascii_lowercase().as_str() {
             "mdd" => Some(Kind::Document),
-            "mds" => Some(Kind::Presentation),
+            "mds" | "mdp" => Some(Kind::Presentation),
             _ => None,
         }
     }

@@ -38,8 +38,14 @@ pub enum Menu {
     Fonts(FontTarget),
     /// The font sizes.
     Sizes(FontTarget),
-    /// The File tab.
+    /// The File tab (the old menu).
     File,
+    /// File › Open Recent: the last markdown files.
+    Recent,
+    /// File › Save As: the formats.
+    SaveAs,
+    /// File › Export.
+    Export,
 }
 
 /// What a font or size menu changes.
@@ -67,6 +73,18 @@ impl FontTarget {
         }
     }
 }
+
+/// File › Save As: (extension, label, kind, icon).
+pub const SAVE_AS: [(&str, &str, &str, &str); 8] = [
+    ("md", "Markdown file (.md)", "Markdown", "file-md"),
+    ("docx", "Word document (.docx)", "Document", "file-text"),
+    ("odt", "OpenDocument text (.odt)", "Document", "file-text"),
+    ("pptx", "PowerPoint slide deck (.pptx)", "Slide deck", "file-slides"),
+    ("odp", "OpenDocument presentation (.odp)", "Slide deck", "file-slides"),
+    ("pdf", "Portable document (.pdf)", "PDF", "pdf"),
+    ("mdd", "Markdown document template (.mdd)", "Template", "file-md"),
+    ("mds", "Markdown slide deck template (.mds)", "Template", "file-slides"),
+];
 
 /// Emoji offered by Insert › Emoji (inserted as the character).
 pub const EMOJI: &str = "😀 😃 😄 😁 😆 😅 😂 🙂 😉 😊 😍 🤩 😎 🤔 😐 😮 😢 😭 😡 👍 👎 👏 🙌 🙏 💪 👋 👀 🎉 🎊 🎁 🔥 ⭐ ✨ 💡 📌 📎 📝 📅 📈 📉 📊 ✅ ❌ ⚠️ ❓ ❗ 💬 🚀 🎯 🏆 💰 🔒 🔑 ⏰ ☕ 🌍 ❤️ 💙 💚";
@@ -160,6 +178,8 @@ pub struct Group {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TabId {
+    /// The File tab: New, Open, Open Recent, Save, Save As, Export, Print, Close.
+    File,
     Home,
     Insert,
     Design,
@@ -194,6 +214,18 @@ fn row(b: Vec<Btn>) -> Vec<RowItem> {
 pub fn tabs() -> Vec<Tab> {
     use Item::{Btn as B, Gallery as G};
     vec![
+        Tab {
+            id: TabId::File,
+            label: "File",
+            contextual: false,
+            groups: vec![
+                g("Document", vec![B(large("file.new")), B(large("file.open")), B(large("file.recent").drop(Menu::Recent))]),
+                g("Save", vec![B(large("file.save")), B(large("file.saveAs").label("Save As").drop(Menu::SaveAs))]),
+                g("Export", vec![B(large("file.export").drop(Menu::Export))]),
+                g("Print", vec![B(large("file.print").label("Print"))]),
+                g("Close", vec![B(large("file.close"))]),
+            ],
+        },
         Tab {
             id: TabId::Home,
             label: "Home",
@@ -523,7 +555,19 @@ pub fn entries(menu: Menu, fm: &dyn Fn(&str) -> Option<String>) -> Vec<Entry> {
             v
         }
         Menu::FontColor => vec![Entry::Header("Font color".into()), item("Red", "font-color", "format.color", Some("#C00000".into()))],
-        Menu::Symbol | Menu::Emoji | Menu::SlideBackground | Menu::Fonts(_) => Vec::new(),
+        Menu::Symbol | Menu::Emoji | Menu::SlideBackground | Menu::Fonts(_) | Menu::Recent => Vec::new(),
+        Menu::SaveAs => SAVE_AS
+            .iter()
+            .map(|(ext, label, group, icon)| Entry::Item {
+                label: (*label).into(),
+                icon: Some(icon),
+                sub: Some((*group).into()),
+                cmd: "file.saveAsFormat",
+                arg: Some((*ext).into()),
+                checked: false,
+            })
+            .collect(),
+        Menu::Export => vec![item("Webpage (HTML)", "web", "file.exportHtml", None)],
         Menu::Sizes(target) => {
             let cur = match target {
                 FontTarget::DocSize | FontTarget::DocMain | FontTarget::DocMono => fm("fontsize"),
