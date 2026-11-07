@@ -118,7 +118,7 @@ fn fragment(md: &str, opts: &HtmlOptions) -> String {
             NodeValue::Math(m) => {
                 let u = esc(&math::to_unicode(&m.literal));
                 Some(if m.display_math {
-                    NodeValue::HtmlInline(format!("<span class=\"math-display\" style=\"display:block\">{u}</span>"))
+                    NodeValue::HtmlInline(format!("<span class=\"math math-display\" style=\"display:block\">{u}</span>"))
                 } else {
                     NodeValue::HtmlInline(format!("<span class=\"math\">{u}</span>"))
                 })
@@ -149,13 +149,14 @@ pub fn anchor(text: &str) -> String {
     Anchorizer::new().anchorize(text)
 }
 
-/// `[TOC]`: the headings (levels 1–3) as links.
+/// `[TOC]`: the headings (down to `toc-depth`, 3 by default) as links.
 fn toc(md: &str) -> String {
+    let depth = super::props::toc_depth(&edit::front_matter(md));
     let mut a = Anchorizer::new();
     let mut out = String::from("<nav class=\"toc\"><ul>");
     for h in parse::outline(&parse::parse(md)) {
         let id = a.anchorize(&h.text);
-        if h.level <= 3 {
+        if h.level <= depth {
             let _ = write!(out, "<li style=\"margin-left:{}em\"><a href=\"#{id}\">{}</a></li>", (h.level - 1) as f32 * 1.2, esc(&h.text));
         }
     }
@@ -167,6 +168,8 @@ fn toc(md: &str) -> String {
 pub fn to_html(text: &str, opts: &HtmlOptions) -> String {
     // comments are for the authors, not the readers
     let text = &*super::comments::strip(text);
+    // numbered headings, the abstract and the table of contents
+    let text = &*super::props::expand_text(text);
     let fm = edit::front_matter(text);
     let get = |k: &str| fm.iter().find(|(key, _)| key == k).map(|(_, v)| v.clone());
     let parsed = parse::parse(text);
@@ -186,20 +189,10 @@ pub fn to_html(text: &str, opts: &HtmlOptions) -> String {
         .map(|f| format!(".markdown-body code, .markdown-body pre {{ font-family: \"{f}\", monospace; }}"))
         .unwrap_or_default();
     let justify = if get("justify").as_deref() == Some("true") { ".markdown-body p { text-align: justify; }" } else { "" };
-    let paper = match (get("paper").as_deref(), get("orientation").as_deref()) {
-        (Some("letter"), Some("landscape")) => "letter landscape",
-        (Some("letter"), _) => "letter",
-        (Some("legal"), _) => "legal",
-        (Some("a5"), Some("landscape")) => "A5 landscape",
-        (Some("a5"), _) => "A5",
-        (_, Some("landscape")) => "A4 landscape",
-        _ => "A4",
-    };
-    let margin = match get("margins").as_deref() {
-        Some("narrow") => "1.27cm",
-        Some("wide") => "3.5cm",
-        _ => "2.5cm",
-    };
+    let page = super::page::PageSetup::from_front(&|k| get(k));
+    let m = page.margins;
+    let cm = |pt: f32| format!("{:.2}cm", pt / 72.0 * 2.54);
+    let (paper, margin) = (page.css_size(), format!("{} {} {} {}", cm(m.top), cm(m.right), cm(m.bottom), cm(m.left)));
     let page_css =
         if deck { "@page { size: 297mm 167mm; margin: 0; }".to_string() } else { format!("@page {{ size: {paper}; margin: {margin}; }}") };
 
@@ -235,8 +228,19 @@ pub fn to_html(text: &str, opts: &HtmlOptions) -> String {
     let print =
         if opts.print { "<script>window.addEventListener('load', () => setTimeout(() => window.print(), 300));</script>" } else { "" };
     let theme_attr = if opts.dark { " data-theme=\"dark\"" } else { "" };
+    let dir_attr = if super::props::rtl(&fm) { " dir=\"rtl\"" } else { "" };
+    let keywords = get("keywords")
+        .map(|k| format!("<meta name=\"keywords\" content=\"{}\">\n", esc(&super::props::list(&k).join(", "))))
+        .unwrap_or_default();
+    let author_meta = get("author")
+        .map(|a| format!("<meta name=\"author\" content=\"{}\">\n", esc(&super::props::list(&a).join(", "))))
+        .unwrap_or_default();
+    let sans_css = get("sansfont")
+        .map(|f| format!(".markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6, .markdown-body th {{ font-family: \"{f}\", system-ui, sans-serif; }}"))
+        .unwrap_or_default();
+    let math_css = get("mathfont").map(|f| format!(".markdown-body .math {{ font-family: \"{f}\", serif; }}")).unwrap_or_default();
     format!(
-        "<!doctype html>\n<html lang=\"en\"{theme_attr}>\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"generator\" content=\"Kadee Markdown\">\n<title>{}</title>\n<style>\n{MARKDOWN_CSS}\n{EXTRA_CSS}\n:root {{ {vars} }}\n{font_css}\n{size_css}\n{mono_css}\n{justify}\n{page_css}\n</style>\n</head>\n<body>\n{watermark}{body}\n{print}\n</body>\n</html>\n",
+        "<!doctype html>\n<html lang=\"en\"{theme_attr}{dir_attr}>\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"generator\" content=\"Kadee Markdown\">\n{author_meta}{keywords}<title>{}</title>\n<style>\n{MARKDOWN_CSS}\n{EXTRA_CSS}\n:root {{ {vars} }}\n{font_css}\n{size_css}\n{mono_css}\n{sans_css}\n{math_css}\n{justify}\n{page_css}\n</style>\n</head>\n<body>\n{watermark}{body}\n{print}\n</body>\n</html>\n",
         esc(&title)
     )
 }

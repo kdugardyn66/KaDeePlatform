@@ -97,10 +97,13 @@ impl Doc {
         let mut parsed = md::parse(text);
         // videos, audio and included files: links with their name
         md::media::as_links(&mut parsed.blocks);
+        // numbered headings, the table of contents and the abstract
+        md::props::apply(&mut parsed);
         let front = parsed.front_matter.clone();
         let get = |k: &str| front.iter().find(|(key, _)| key == k).map(|(_, v)| v.clone());
         let title = get("title").or_else(|| md::outline(&parsed).first().map(|h| h.text.clone())).unwrap_or_else(|| "Document".into());
-        let author = get("author").unwrap_or_else(|| input.author.clone());
+        let author =
+            get("author").map(|a| md::props::list(&a).join(", ")).filter(|a| !a.is_empty()).unwrap_or_else(|| input.author.clone());
         let theme = get("theme").as_deref().and_then(md::library::theme);
         let slides = md::slides::slides(text)
             .iter()
@@ -119,28 +122,38 @@ impl Doc {
         Doc { parsed, title, author, base_dir: input.base_dir.clone(), theme, slides, front }
     }
 
+    /// The keywords (`keywords: [a, b]`), comma-separated.
+    pub fn keywords(&self) -> String {
+        self.meta("keywords").map(|k| md::props::list(k).join(", ")).unwrap_or_default()
+    }
+
+    /// How deep the table of contents goes.
+    pub fn toc_depth(&self) -> u8 {
+        md::props::toc_depth(&self.front)
+    }
+
+    /// The headings' font (`sansfont`), when it is set.
+    pub fn heading_font(&self) -> Option<&str> {
+        self.meta("sansfont").filter(|f| !f.trim().is_empty())
+    }
+
     pub fn meta(&self, key: &str) -> Option<&str> {
         self.front.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
     }
 
-    /// Page size in points (width, height), from `paper` and `orientation`.
-    pub fn page_size(&self) -> (f32, f32) {
-        let (w, h) = match self.meta("paper") {
-            Some("letter") => (612.0, 792.0),
-            Some("legal") => (612.0, 1008.0),
-            Some("a5") => (419.5, 595.3),
-            _ => (595.3, 841.9),
-        };
-        if self.meta("orientation") == Some("landscape") { (h, w) } else { (w, h) }
+    /// The page setup: paper, orientation and margins (`geometry`, or the older keys).
+    pub fn page(&self) -> md::page::PageSetup {
+        md::page::PageSetup::from_front(&|k| self.meta(k).map(str::to_string))
     }
 
-    /// Page margin in points, from `margins`.
-    pub fn margin(&self) -> f32 {
-        match self.meta("margins") {
-            Some("narrow") => 36.0,
-            Some("wide") => 99.2,
-            _ => 70.9,
-        }
+    /// Page size in points (width, height).
+    pub fn page_size(&self) -> (f32, f32) {
+        self.page().size()
+    }
+
+    /// Page margins in points.
+    pub fn margins(&self) -> md::page::Margins {
+        self.page().margins
     }
 
     /// The colour of headings (the document theme's), as `RRGGBB`.
@@ -167,6 +180,10 @@ impl Doc {
 
     /// A picture from a link (local file) or a drawn diagram.
     pub fn picture(&self, url: &str) -> Option<Picture> {
+        let url = url.trim_start_matches('<').trim_end_matches('>');
+        if url.starts_with("http://") || url.starts_with("https://") {
+            return Picture::from_web(url);
+        }
         if url.contains("://") || url.starts_with("data:") {
             return None;
         }
@@ -233,9 +250,33 @@ pub(crate) struct Picture {
 }
 
 impl Picture {
+    /// A picture on the web (fetched, with a time limit).
+    fn from_web(url: &str) -> Option<Picture> {
+        let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(10))).build().into();
+        let mut resp = agent.get(url).call().ok()?;
+        let data = resp.body_mut().with_config().limit(25 * 1024 * 1024).read_to_vec().ok()?;
+        let path = url.split(['?', '#']).next().unwrap_or(url);
+        let ext = path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).filter(|e| e.len() <= 4).unwrap_or_default();
+        Self::from_bytes(data, &ext)
+    }
+
     fn from_file(p: &Path) -> Option<Picture> {
         let ext = p.extension()?.to_str()?.to_ascii_lowercase();
         let data = std::fs::read(p).ok()?;
+        Self::from_bytes(data, &ext)
+    }
+
+    fn from_bytes(data: Vec<u8>, ext: &str) -> Option<Picture> {
+        let ext = if ext.is_empty() || !matches!(ext, "png" | "jpg" | "jpeg" | "svg") {
+            match image::guess_format(&data) {
+                Ok(image::ImageFormat::Png) => "png".to_string(),
+                Ok(image::ImageFormat::Jpeg) => "jpg".to_string(),
+                _ if data.starts_with(b"<svg") || data.starts_with(b"<?xml") => "svg".to_string(),
+                _ => ext.to_string(),
+            }
+        } else {
+            ext.to_string()
+        };
         if ext == "svg" {
             return svg_png(std::str::from_utf8(&data).ok()?, 2.0);
         }

@@ -277,7 +277,7 @@ impl Ctx<'_> {
             Block::Rule { .. } => self.p("Horizontal_20_Line", ""),
             Block::PageBreak { .. } | Block::SlideBreak { .. } => self.p("PageBreak", ""),
             Block::Toc { .. } => {
-                for h in crate::md::outline(&self.doc.parsed).iter().filter(|h| h.level <= 3) {
+                for h in crate::md::outline(&self.doc.parsed).iter().filter(|h| h.level <= self.doc.toc_depth()) {
                     let x = odf_text(&h.text);
                     self.p(&format!("TOC{}", h.level), &x);
                 }
@@ -387,7 +387,7 @@ impl Ctx<'_> {
 
 fn styles(doc: &Doc) -> String {
     let (pw, ph) = doc.page_size();
-    let m = doc.margin();
+    let m = doc.margins();
     let cm = |pt: f32| pt / 72.0 * 2.54;
     let font = esc(&doc.font());
     let size = doc.font_size();
@@ -402,13 +402,15 @@ fn styles(doc: &Doc) -> String {
 <style:style style:name=\"Heading\" style:family=\"paragraph\" style:parent-style-name=\"Standard\" style:next-style-name=\"Text_20_body\" style:class=\"text\"><style:paragraph-properties fo:margin-top=\"0.42cm\" fo:margin-bottom=\"0.21cm\" fo:keep-with-next=\"always\"/><style:text-properties fo:font-weight=\"bold\" style:font-weight-complex=\"bold\"/></style:style>"
     );
     let scale = [2.0f32, 1.5, 1.25, 1.0, 0.875, 0.85];
+    // the headings' own font (`sansfont`)
+    let head_font = doc.heading_font().map(|f| format!(" fo:font-family=\"'{}'\"", esc(f))).unwrap_or_default();
     for (i, k) in scale.iter().enumerate() {
         let l = i + 1;
         let color = if l <= 2 { hc.clone() } else { "#1f2328".into() };
         let border = if l <= 2 { " fo:border-bottom=\"0.5pt solid #d0d7de\" fo:padding-bottom=\"0.1cm\"" } else { "" };
         let _ = write!(
             s,
-            "<style:style style:name=\"Heading_20_{l}\" style:display-name=\"Heading {l}\" style:family=\"paragraph\" style:parent-style-name=\"Heading\" style:next-style-name=\"Text_20_body\" style:default-outline-level=\"{l}\" style:class=\"text\"><style:paragraph-properties{border}/><style:text-properties fo:font-size=\"{:.1}pt\" fo:color=\"{color}\"/></style:style>",
+            "<style:style style:name=\"Heading_20_{l}\" style:display-name=\"Heading {l}\" style:family=\"paragraph\" style:parent-style-name=\"Heading\" style:next-style-name=\"Text_20_body\" style:default-outline-level=\"{l}\" style:class=\"text\"><style:paragraph-properties{border}/><style:text-properties fo:font-size=\"{:.1}pt\" fo:color=\"{color}\"{head_font}/></style:style>",
             size * k
         );
     }
@@ -440,11 +442,14 @@ fn styles(doc: &Doc) -> String {
     }
     let _ = write!(
         s,
-        "</office:styles><office:automatic-styles><style:page-layout style:name=\"pm1\"><style:page-layout-properties fo:page-width=\"{:.2}cm\" fo:page-height=\"{:.2}cm\" style:print-orientation=\"{}\" fo:margin-top=\"{m:.2}cm\" fo:margin-bottom=\"{m:.2}cm\" fo:margin-left=\"{m:.2}cm\" fo:margin-right=\"{m:.2}cm\"/></style:page-layout></office:automatic-styles><office:master-styles><style:master-page style:name=\"Standard\" style:page-layout-name=\"pm1\"/></office:master-styles></office:document-styles>",
+        "</office:styles><office:automatic-styles><style:page-layout style:name=\"pm1\"><style:page-layout-properties fo:page-width=\"{:.2}cm\" fo:page-height=\"{:.2}cm\" style:print-orientation=\"{}\" fo:margin-top=\"{mt:.2}cm\" fo:margin-bottom=\"{mb:.2}cm\" fo:margin-left=\"{ml:.2}cm\" fo:margin-right=\"{mr:.2}cm\"/></style:page-layout></office:automatic-styles><office:master-styles><style:master-page style:name=\"Standard\" style:page-layout-name=\"pm1\"/></office:master-styles></office:document-styles>",
         cm(pw),
         cm(ph),
         if pw > ph { "landscape" } else { "portrait" },
-        m = cm(m)
+        mt = cm(m.top),
+        mb = cm(m.bottom),
+        ml = cm(m.left),
+        mr = cm(m.right)
     );
     s
 }
@@ -464,10 +469,11 @@ pub(crate) fn manifest(mime: &str, pictures: &[(String, Vec<u8>)]) -> String {
 pub(crate) fn meta(doc: &Doc) -> String {
     let now = super::now_iso();
     format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-meta {NS} office:version=\"1.3\"><office:meta><meta:generator>Kadee Markdown</meta:generator><dc:title>{}</dc:title><meta:initial-creator>{}</meta:initial-creator><dc:creator>{}</dc:creator><meta:creation-date>{now}</meta:creation-date><dc:date>{now}</dc:date></office:meta></office:document-meta>",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-meta {NS} office:version=\"1.3\"><office:meta><meta:generator>Kadee Markdown</meta:generator><dc:title>{}</dc:title><meta:initial-creator>{}</meta:initial-creator><dc:creator>{}</dc:creator><meta:keyword>{}</meta:keyword><meta:creation-date>{now}</meta:creation-date><dc:date>{now}</dc:date></office:meta></office:document-meta>",
         esc(&doc.title),
         esc(&doc.author),
-        esc(&doc.author)
+        esc(&doc.author),
+        esc(&doc.keywords())
     )
 }
 
@@ -504,7 +510,7 @@ pub fn write(doc: &Doc) -> Result<Vec<u8>, String> {
         text: TextStyles::default(),
         pictures: Vec::new(),
         mono,
-        max_w_cm: (pw - 2.0 * doc.margin()) / 72.0 * 2.54,
+        max_w_cm: (pw - doc.margins().left - doc.margins().right) / 72.0 * 2.54,
         tables: 0,
         para_styles: String::new(),
         para_n: 0,

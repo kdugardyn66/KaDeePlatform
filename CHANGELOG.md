@@ -75,6 +75,13 @@ Kadee Markdown: MdCraft rebuilt natively in GPUI and opened in KadeeStudio's tab
 - **Colour pickers** for Font color, Highlight color, Shading and Border color: *Automatic / No color*, the theme colours with five lighter and darker shades each, the standard colours, *Recent colors* and **More colors…** (a saturation × brightness square, a hue strip, *New* and *Current*, R G B and #hex).
 - Paragraph formatting is kept as inline CSS on a `<div>` around the paragraphs, so GitHub and other viewers show it too. The preview shows it; Word and OpenDocument exports get real paragraph properties (alignment, spacing, line spacing, indents, shading, borders, right-to-left, page breaks); the PDF export lays out alignment, indents, line spacing, spacing, shading and borders; slide decks keep centring.
 
+**Markdown enhancements, phase 1 — step 3: Insert and Document properties**
+
+- **Insert › Picture ▾**: *Picture from clipboard* (saved in an `images` folder next to the document and linked), *Picture from file…*, *Picture from URL…*. Pictures on the web now show in the preview and are fetched for the Word, OpenDocument, PowerPoint and PDF exports.
+- **Insert › Include file ▾**: *As icon with link to the file* (`@import "file"`) or *As preview with link to the file* (`@import "file" {preview}`): a Markdown file rendered, a CSV file as a table, a picture, or the first 40 lines of a text file, under the file's card.
+- **File › Properties** opens **Document properties**, kept in the front matter with Pandoc's names: *Document* (title, subtitle, author(s), date with *Today*, abstract, keywords), *Fonts* (mainfont, sansfont for headings and tables, monofont, mathfont, fontsize), *Page layout* (paper A4 / Letter / Legal / A5 / B5 / Executive, portrait or landscape, margins — presets or each edge, theme, table of contents with its depth, numbered headings) and *Language* (text direction).
+- What they do: `geometry` sets the paper, orientation and margins in every export (Design › Size, Orientation and Margins write it too; the older keys still work); `toc` and `toc-depth` put a table of contents at the top; `numbersections` numbers the headings 1, 1.1 … (a single level-1 heading is the title and stays unnumbered); `abstract` shows under the title; `keywords` and the authors go into the files' metadata; `sansfont` and `mathfont` set the headings' and formulas' fonts; `dir: rtl` turns the web page right to left.
+
 ## 0.1.0 — 2026-11-03
 
 The KaDee Platform's first version: KadeeStudio's start screen as a standalone GPUI app.

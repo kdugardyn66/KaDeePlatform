@@ -9,7 +9,7 @@ use std::io::Write as _;
 
 use super::flow::{self, Item, Kind, Para, SLIDE_H, SLIDE_W, SlideBox};
 use super::{Doc, Picture, Run};
-use crate::md::{Align, Style};
+use crate::md::{self, Align, Style};
 
 // ---- fonts -----------------------------------------------------------------------------------------
 
@@ -200,7 +200,9 @@ struct Writer {
     pages: Vec<Page>,
     images: Vec<Picture>,
     ph: f32,
+    /// Top margin (the page's text starts there).
     margin: f32,
+    bottom: f32,
     y: f32,
     base: f32,
     fg: String,
@@ -222,7 +224,7 @@ impl Writer {
     }
 
     fn ensure(&mut self, h: f32) {
-        if !self.deck && self.y + h > self.ph - self.margin && self.y > self.margin + 1.0 {
+        if !self.deck && self.y + h > self.ph - self.bottom && self.y > self.margin + 1.0 {
             self.new_page();
         }
     }
@@ -445,7 +447,7 @@ impl Writer {
             } else {
                 lh.min(total)
             };
-            self.ensure(before + keep.min(self.ph - 2.0 * self.margin));
+            self.ensure(before + keep.min(self.ph - self.margin - self.bottom));
         }
         self.y += before;
         let top = self.y;
@@ -470,7 +472,7 @@ impl Writer {
         }
         let align = fmt.and_then(|f| f.align).or(if fmt.is_some_and(|f| f.rtl) { Some(ParaAlign::Right) } else { None });
         for (i, line) in lines.iter().enumerate() {
-            if !self.deck && self.y + lh > self.ph - self.margin {
+            if !self.deck && self.y + lh > self.ph - self.bottom {
                 self.new_page();
             }
             let lw: f32 = line.iter().map(|q| q.width).sum();
@@ -526,7 +528,7 @@ impl Writer {
 
     fn flow_picture(&mut self, p: &Picture, x: f32, w: f32) {
         let (mut pw, mut ph) = p.points(w);
-        let max_h = self.ph - 2.0 * self.margin;
+        let max_h = self.ph - self.margin - self.bottom;
         if ph > max_h {
             pw *= max_h / ph;
             ph = max_h;
@@ -671,12 +673,14 @@ fn image_objects(p: &Picture) -> Option<ImageObj> {
 pub fn write(doc: &Doc) -> Result<Vec<u8>, String> {
     let deck = !doc.slides.is_empty();
     let (pw, ph) = if deck { (SLIDE_W, SLIDE_H) } else { doc.page_size() };
-    let margin = if deck { 0.0 } else { doc.margin() };
+    let m = if deck { md::page::Margins::all(0.0) } else { doc.margins() };
+    let margin = m.top;
     let mut w = Writer {
         pages: Vec::new(),
         images: Vec::new(),
         ph,
         margin,
+        bottom: m.bottom,
         y: margin,
         base: doc.font_size().clamp(7.0, 20.0),
         fg: "1F2328".into(),
@@ -721,7 +725,7 @@ pub fn write(doc: &Doc) -> Result<Vec<u8>, String> {
     } else {
         w.pages.push(Page::default());
         let items = flow::flow(doc, &doc.parsed.blocks);
-        let (x, tw, size) = (margin, pw - 2.0 * margin, w.base);
+        let (x, tw, size) = (m.left, pw - m.left - m.right, w.base);
         w.items(&items, x, tw, size, false);
     }
     // page numbers and the watermark
@@ -746,7 +750,7 @@ pub fn write(doc: &Doc) -> Result<Vec<u8>, String> {
         if !deck && count > 1 {
             let n = encode(&format!("{}", i + 1));
             let nw = text_width(&n, Font::Regular, 9.0);
-            let _ = write!(ops, "BT /F1 9 Tf 0.55 0.58 0.62 rg {:.2} {:.2} Td {} Tj ET\n", (pw - nw) / 2.0, margin / 2.0, pdf_string(&n));
+            let _ = write!(ops, "BT /F1 9 Tf 0.55 0.58 0.62 rg {:.2} {:.2} Td {} Tj ET\n", (pw - nw) / 2.0, m.bottom / 2.0, pdf_string(&n));
         }
         w.pages[i].ops = ops;
     }
@@ -760,8 +764,13 @@ pub fn write(doc: &Doc) -> Result<Vec<u8>, String> {
     }
     let lit = |s: &str| pdf_string(&encode(s));
     objs.push(
-        format!("<< /Title {} /Author {} /Producer (Kadee Markdown) /Creator (Kadee Markdown) >>", lit(&doc.title), lit(&doc.author))
-            .into_bytes(),
+        format!(
+            "<< /Title {} /Author {} /Keywords {} /Producer (Kadee Markdown) /Creator (Kadee Markdown) >>",
+            lit(&doc.title),
+            lit(&doc.author),
+            lit(&doc.keywords())
+        )
+        .into_bytes(),
     );
     // images
     let mut image_ids = Vec::new();

@@ -44,6 +44,32 @@ fn load(source: &ThumbSource) -> Option<Arc<RenderImage>> {
     to_render_image(&bytes)
 }
 
+/// A picture on the web, for the preview.
+pub struct WebPicture;
+
+impl Asset for WebPicture {
+    type Source = String;
+    type Output = Option<Arc<RenderImage>>;
+
+    fn load(url: Self::Source, cx: &mut App) -> impl Future<Output = Self::Output> + Send + 'static {
+        let executor = cx.background_executor().clone();
+        async move {
+            executor
+                .spawn(async move {
+                    let agent: ureq::Agent =
+                        ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(10))).build().into();
+                    let mut resp = agent.get(&url).call().ok()?;
+                    let bytes = resp.body_mut().with_config().limit(25 * 1024 * 1024).read_to_vec().ok()?;
+                    if bytes.starts_with(b"<svg") || bytes.starts_with(b"<?xml") {
+                        return crate::raster::svg_image(std::str::from_utf8(&bytes).ok()?, 2.0);
+                    }
+                    to_render_image(&bytes)
+                })
+                .await
+        }
+    }
+}
+
 /// A frame one second in (or the first one) as PNG bytes, with ffmpeg.
 fn video_frame(path: &std::path::Path) -> Option<Vec<u8>> {
     let ffmpeg = ffmpeg()?;

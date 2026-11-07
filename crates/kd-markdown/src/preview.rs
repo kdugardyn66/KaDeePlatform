@@ -229,6 +229,8 @@ impl Preview {
     pub fn update_text(&mut self, text: &str, version: u64, cx: &mut Context<Self>) {
         if version != self.version {
             self.parsed = md::parse(text);
+            // numbered headings, the table of contents and the abstract from the front matter
+            md::props::apply(&mut self.parsed);
             self.theme = self.parsed.meta("theme").and_then(md::library::theme);
             self.deck = md::slides::slides(text)
                 .iter()
@@ -293,6 +295,11 @@ struct R {
     diagrams: Diagrams,
     /// Inside a slide: headings without rules or top margin.
     slide: bool,
+    /// From the front matter: the table of contents' depth, the headings' and the
+    /// formulas' fonts.
+    toc_depth: u8,
+    head_font: Option<SharedString>,
+    math_font: Option<SharedString>,
 }
 
 impl R {
@@ -460,9 +467,11 @@ impl R {
                 };
                 let text = self.inlines(inlines, color, FontWeight::SEMIBOLD, false);
                 let rule = rule && !self.slide;
+                let head_font = self.head_font.clone();
                 self.block(*line)
                     .when(!self.slide, |d| d.mt(px(s * 1.5)))
                     .mb(gap)
+                    .when_some(head_font, |d, f| d.font_family(f))
                     .text_size(px(s * k))
                     .line_height(px(s * k * 1.25))
                     .when(rule, |d| d.pb(px(s * k * 0.3)).border_b_1().border_color(col.border.opacity(0.7)))
@@ -480,7 +489,8 @@ impl R {
                 }
                 // @import "file": the file's icon and name, linked to it
                 if let Some(path) = md::media::import_of(inlines) {
-                    let el = self.file_card(path);
+                    let preview = matches!(inlines.as_slice(), [Inline::Text(t, _)] if md::media::import_is_preview(t));
+                    let el = if preview { self.include_preview(path, depth) } else { self.file_card(path) };
                     return Some(self.block(*line).mb(gap).child(el).into_any_element());
                 }
                 let text = self.inlines(inlines, col.fg, FontWeight::NORMAL, false);
@@ -636,6 +646,7 @@ impl R {
                 .flex_col()
                 .items_center()
                 .italic()
+                .when_some(self.math_font.clone(), |d, f| d.font_family(f))
                 .text_size(px(s * 1.1))
                 .children(md::math::to_unicode(text).lines().map(|l| div().child(l.to_string())).collect::<Vec<_>>())
                 .into_any_element(),
@@ -644,11 +655,12 @@ impl R {
             Block::PageBreak { line } => self.divider(*line, "Page break"),
             Block::SlideBreak { line } => self.divider(*line, "Slide"),
             Block::Toc { line } => {
+                let depth = self.toc_depth;
                 let rows: Vec<AnyElement> = self
                     .outline
                     .clone()
                     .into_iter()
-                    .filter(|h| h.level <= 3)
+                    .filter(|h| h.level <= depth)
                     .map(|h| {
                         let p = self.preview.clone();
                         let target = h.line;
@@ -830,6 +842,36 @@ impl R {
         let col = self.col;
         let local = !url.contains("://") && !url.starts_with("data:");
         let path = local.then(|| resolve(self.base_dir.as_deref(), url)).flatten();
+        let web = url.trim_start_matches('<').trim_end_matches('>');
+        if web.starts_with("http://") || web.starts_with("https://") {
+            // fetched in the background; a frame until it is there
+            let src = web.to_string();
+            let caption = if alt.is_empty() { web.to_string() } else { alt.to_string() };
+            return div()
+                .flex()
+                .justify_center()
+                .child(
+                    img(gpui::ImageSource::Custom(Arc::new(move |window: &mut Window, cx: &mut App| {
+                        window.use_asset::<crate::media::WebPicture>(&src, cx).map(|loaded| {
+                            loaded.ok_or_else(|| gpui::ImageCacheError::Io(Arc::new(std::io::Error::other("could not load the picture"))))
+                        })
+                    })))
+                    .max_w_full()
+                    .with_fallback(move || {
+                        div()
+                            .p(px(10.0))
+                            .rounded(px(6.0))
+                            .border_1()
+                            .border_dashed()
+                            .border_color(col.border)
+                            .text_color(col.muted)
+                            .text_size(px(13.0))
+                            .child(format!("🖼 {caption} (could not load)"))
+                            .into_any_element()
+                    }),
+                )
+                .into_any_element();
+        }
         match path {
             Some(p) => div().flex().justify_center().child(img(p).max_w_full()).into_any_element(),
             None => div()
@@ -995,6 +1037,55 @@ impl R {
             .into_any_element()
     }
 
+    /// `@import "file" {preview}`: the file card with what the file holds under it — a Markdown
+    /// file rendered, a CSV file as a table, a picture, the first lines of a text file.
+    fn include_preview(&mut self, path: &str, depth: usize) -> AnyElement {
+        let col = self.col;
+        let s = self.size;
+        let card = self.file_card(path);
+        let file = resolve(self.base_dir.as_deref(), path.trim_start_matches('<').trim_end_matches('>'));
+        let ext = md::media::extension(path);
+        let body: Option<AnyElement> = match (&file, ext.as_str()) {
+            (None, _) => None,
+            (Some(_), _) if depth > 3 => Some(div().text_color(col.muted).child("(included too deep)").into_any_element()),
+            (Some(f), "md" | "markdown" | "mdd" | "mds" | "mdp") => std::fs::read_to_string(f).ok().map(|t| {
+                let parsed = md::parse(&t);
+                let blocks = self.blocks(&parsed.blocks, depth + 1);
+                div().flex().flex_col().children(blocks).into_any_element()
+            }),
+            (Some(f), "csv" | "tsv") => std::fs::read_to_string(f).ok().map(|t| {
+                let parsed = md::parse(&md::review::csv_to_table(&t));
+                div().flex().flex_col().children(self.blocks(&parsed.blocks, depth + 1)).into_any_element()
+            }),
+            (Some(f), "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg") => {
+                Some(div().flex().justify_center().child(img(f.clone()).max_w_full()).into_any_element())
+            }
+            (Some(f), _) => std::fs::read(f).ok().filter(|b| std::str::from_utf8(b).is_ok() && b.len() < 2_000_000).map(|b| {
+                let t = String::from_utf8_lossy(&b);
+                let lines: Vec<&str> = t.lines().take(40).collect();
+                let more = t.lines().count() > 40;
+                div()
+                    .p(px(s * 0.6))
+                    .rounded(px(4.0))
+                    .bg(col.code_bg)
+                    .font_family(self.mono.clone())
+                    .text_size(px(s * 0.82))
+                    .children(lines.into_iter().map(|l| div().child(if l.is_empty() { " ".to_string() } else { l.to_string() })))
+                    .when(more, |d| d.child(div().text_color(col.muted).child("…")))
+                    .into_any_element()
+            }),
+        };
+        let none = file.is_some() && body.is_none();
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(8.0))
+            .child(card)
+            .when_some(body, |d, b| d.child(div().pl(px(s * 0.8)).border_l(px(3.0)).border_color(col.border).child(b)))
+            .when(none, |d| d.child(div().text_size(px(s * 0.8)).text_color(col.muted).child("No preview for this kind of file.")))
+            .into_any_element()
+    }
+
     /// `@import "file"`: the file's icon, name and kind; a click opens it.
     fn file_card(&mut self, path: &str) -> AnyElement {
         let col = self.col;
@@ -1142,6 +1233,9 @@ impl Preview {
             heading: None,
             diagrams: self.diagrams.clone(),
             slide: false,
+            toc_depth: md::props::toc_depth(&self.parsed.front_matter),
+            head_font: self.parsed.meta("sansfont").filter(|f| !f.trim().is_empty()).map(|f| SharedString::from(f.to_string())),
+            math_font: self.parsed.meta("mathfont").filter(|f| !f.trim().is_empty()).map(|f| SharedString::from(f.to_string())),
         }
     }
 

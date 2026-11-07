@@ -147,7 +147,7 @@ impl Builder<'_> {
             Block::Rule { .. } => self.items.push(Item::Rule),
             Block::PageBreak { .. } | Block::SlideBreak { .. } => self.items.push(Item::PageBreak),
             Block::Toc { .. } => {
-                for h in crate::md::outline(&self.doc.parsed).iter().filter(|h| h.level <= 3) {
+                for h in crate::md::outline(&self.doc.parsed).iter().filter(|h| h.level <= self.doc.toc_depth()) {
                     self.para(Para {
                         fmt: None,
                         runs: vec![text(&h.text, Style { color: Some("#0969DA".into()), ..Style::default() })],

@@ -40,6 +40,10 @@ pub enum Menu {
     Sizes(FontTarget),
     /// The File tab (the old menu).
     File,
+    /// Insert › Picture.
+    Picture,
+    /// Insert › Include file.
+    Include,
     /// Home › Line and paragraph spacing.
     LineSpacing,
     /// Home › Text direction.
@@ -65,6 +69,10 @@ pub enum FontTarget {
     DocMono,
     /// The document's size (`fontsize`).
     DocSize,
+    /// The headings' font (`sansfont`).
+    DocSans,
+    /// The formulas' font (`mathfont`).
+    DocMath,
 }
 
 impl FontTarget {
@@ -76,6 +84,8 @@ impl FontTarget {
             (FontTarget::DocMain, _) => "design.mainfont",
             (FontTarget::DocMono, _) => "design.monofont",
             (FontTarget::DocSize, _) => "design.fontsize",
+            (FontTarget::DocSans, _) => "design.sansfont",
+            (FontTarget::DocMath, _) => "design.mathfont",
         }
     }
 }
@@ -257,7 +267,7 @@ pub fn tabs() -> Vec<Tab> {
             contextual: false,
             groups: vec![
                 g("Document", vec![B(large("file.new")), B(large("file.open")), B(large("file.recent").drop(Menu::Recent))]),
-                g("Info", vec![B(large("file.info").label("Document info"))]),
+                g("Info", vec![B(large("file.info").label("Document info")), B(large("file.properties").label("Properties"))]),
                 g("Save", vec![B(large("file.save")), B(large("file.saveAs").label("Save As").drop(Menu::SaveAs))]),
                 g("Export", vec![B(large("file.export").drop(Menu::Export))]),
                 g("Print", vec![B(large("file.print").label("Print"))]),
@@ -334,13 +344,13 @@ pub fn tabs() -> Vec<Tab> {
                 g(
                     "Illustrations",
                     vec![
-                        B(large("insert.picture")),
+                        B(large("insert.picture").label("Picture").drop(Menu::Picture)),
                         B(large("insert.diagram").menu(Menu::Diagram)),
                         B(large("insert.chart").menu(Menu::Chart)),
                         col(vec![
                             small("insert.video").label("Media").drop(Menu::Media),
                             small("insert.molecule").label("Chemistry").drop(Menu::Chem),
-                            small("insert.import").label("Include file"),
+                            small("insert.import").label("Include file").drop(Menu::Include),
                         ]),
                     ],
                 ),
@@ -527,25 +537,30 @@ pub fn entries(menu: Menu, fm: &dyn Fn(&str) -> Option<String>) -> Vec<Entry> {
         Menu::NewSlide => library::LAYOUTS.iter().map(|l| item(l.name, "slide-new", "slides.new", Some(l.id.into()))).collect(),
         Menu::Layout => library::LAYOUTS.iter().map(|l| item(l.name, "slide-layout", "slides.layout", Some(l.id.into()))).collect(),
         Menu::Paper => {
-            let cur = fm("paper").unwrap_or_else(|| "a4".into());
-            [("a4", "A4 (210 × 297 mm)"), ("letter", "Letter (8.5 × 11 in)"), ("a5", "A5 (148 × 210 mm)"), ("legal", "Legal (8.5 × 14 in)")]
-                .iter()
-                .map(|(id, l)| checked(l, "page-size", "design.paper", id, cur == *id))
-                .collect()
+            let page = md::page::PageSetup::from_front(&|k| fm(k));
+            md::page::PAPERS.iter().map(|(id, l, ..)| checked(l, "page-size", "design.paper", id, page.paper == *id)).collect()
         }
         Menu::Orientation => {
-            let cur = fm("orientation").unwrap_or_else(|| "portrait".into());
-            [("portrait", "Portrait"), ("landscape", "Landscape")]
-                .iter()
-                .map(|(id, l)| checked(l, "orientation", "design.orientation", id, cur == *id))
-                .collect()
+            let page = md::page::PageSetup::from_front(&|k| fm(k));
+            vec![
+                checked("Portrait", "orientation", "design.orientation", "portrait", !page.landscape),
+                checked("Landscape", "orientation", "design.orientation", "landscape", page.landscape),
+            ]
         }
         Menu::Margins => {
-            let cur = fm("margins").unwrap_or_else(|| "normal".into());
-            [("normal", "Normal (2.5 cm)"), ("narrow", "Narrow (1.27 cm)"), ("wide", "Wide (3.5 cm)")]
-                .iter()
-                .map(|(id, l)| checked(l, "margins", "design.margins", id, cur == *id))
-                .collect()
+            let page = md::page::PageSetup::from_front(&|k| fm(k));
+            let m = page.margins;
+            let even = m.top == m.bottom && m.bottom == m.left && m.left == m.right;
+            [
+                ("normal", "Normal (2.5 cm)", 70.9f32),
+                ("narrow", "Narrow (1.27 cm)", 36.0),
+                ("moderate", "Moderate (2 cm)", 56.7),
+                ("wide", "Wide (3.5 cm)", 99.2),
+            ]
+            .iter()
+            .map(|(id, l, v)| checked(l, "margins", "design.margins", id, even && (m.top - v).abs() < 0.6))
+            .chain(std::iter::once(item("Custom margins…", "margins", "file.properties", Some("layout".into()))))
+            .collect()
         }
         Menu::Watermark => {
             let cur = fm("watermark").unwrap_or_default();
@@ -614,6 +629,29 @@ pub fn entries(menu: Menu, fm: &dyn Fn(&str) -> Option<String>) -> Vec<Entry> {
             })
             .collect(),
         Menu::Export => vec![item("Webpage (HTML)", "web", "file.exportHtml", None)],
+        Menu::Picture => vec![
+            item("Picture from clipboard", "clipboard-rich", "insert.pictureClipboard", None),
+            item("Picture from file…", "picture", "insert.picture", None),
+            item("Picture from URL…", "web", "insert.pictureUrl", None),
+        ],
+        Menu::Include => vec![
+            Entry::Item {
+                label: "As icon with link to the file…".into(),
+                icon: Some("file-text"),
+                sub: Some("The file's icon and name; a click opens it".into()),
+                cmd: "insert.import",
+                arg: None,
+                checked: false,
+            },
+            Entry::Item {
+                label: "As preview with link to the file…".into(),
+                icon: Some("file-md"),
+                sub: Some("What the file holds, under its name".into()),
+                cmd: "insert.importPreview",
+                arg: None,
+                checked: false,
+            },
+        ],
         Menu::LineSpacing => {
             let st = crate::md_para(fm);
             let cur = match st.line {
@@ -654,7 +692,9 @@ pub fn entries(menu: Menu, fm: &dyn Fn(&str) -> Option<String>) -> Vec<Entry> {
         }
         Menu::Sizes(target) => {
             let cur = match target {
-                FontTarget::DocSize | FontTarget::DocMain | FontTarget::DocMono => fm("fontsize"),
+                FontTarget::DocSize | FontTarget::DocMain | FontTarget::DocMono | FontTarget::DocSans | FontTarget::DocMath => {
+                    fm("fontsize")
+                }
                 FontTarget::Selection => fm("\u{0}size"),
             }
             .unwrap_or_default();

@@ -186,6 +186,12 @@ pub fn import_path(text: &str) -> Option<&str> {
     (!r.is_empty()).then_some(r)
 }
 
+/// `@import "file" {preview}`: show what the file holds, not only its icon.
+pub fn import_is_preview(text: &str) -> bool {
+    let t = text.trim();
+    t.starts_with("@import") && (t.contains("{preview}") || t.contains("{.preview}"))
+}
+
 /// A paragraph that is only an `@import`: the file.
 pub fn import_of(inlines: &[Inline]) -> Option<&str> {
     match inlines {

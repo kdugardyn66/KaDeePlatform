@@ -284,7 +284,7 @@ impl Ctx<'_> {
             Block::Toc { .. } => {
                 let field = "<w:r><w:fldChar w:fldCharType=\"begin\" w:dirty=\"true\"/></w:r><w:r><w:instrText xml:space=\"preserve\"> TOC \\o \"1-3\" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"separate\"/></w:r>";
                 self.para(None, "", field);
-                for h in crate::md::outline(&self.doc.parsed).iter().filter(|h| h.level <= 3) {
+                for h in crate::md::outline(&self.doc.parsed).iter().filter(|h| h.level <= self.doc.toc_depth()) {
                     let ind = format!("<w:ind w:left=\"{}\"/>", (h.level as usize - 1) * 360);
                     let x = Self::text_run(&h.text, &Style::default(), "");
                     self.para(Some("TOC"), &ind, &x);
@@ -399,6 +399,9 @@ fn styles(doc: &Doc) -> String {
 <w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\"><w:name w:val=\"Normal\"/><w:qFormat/><w:pPr>{justify}</w:pPr></w:style>"
     );
     let scale = [2.0f32, 1.5, 1.25, 1.0, 0.875, 0.85];
+    // the headings' own font (`sansfont`)
+    let head_fonts =
+        doc.heading_font().map(|f| format!("<w:rFonts w:ascii=\"{0}\" w:hAnsi=\"{0}\" w:cs=\"{0}\"/>", esc(f))).unwrap_or_default();
     for (i, k) in scale.iter().enumerate() {
         let hp = (doc.font_size() * k * 2.0).round() as i32;
         let lvl = i + 1;
@@ -407,7 +410,7 @@ fn styles(doc: &Doc) -> String {
             if lvl <= 2 { "<w:pBdr><w:bottom w:val=\"single\" w:sz=\"4\" w:space=\"4\" w:color=\"D0D7DE\"/></w:pBdr>" } else { "" };
         let _ = write!(
             s,
-            "<w:style w:type=\"paragraph\" w:styleId=\"Heading{lvl}\"><w:name w:val=\"heading {lvl}\"/><w:basedOn w:val=\"Normal\"/><w:next w:val=\"Normal\"/><w:uiPriority w:val=\"9\"/><w:qFormat/><w:pPr><w:keepNext/><w:keepLines/>{border}<w:spacing w:before=\"{}\" w:after=\"120\"/><w:outlineLvl w:val=\"{}\"/></w:pPr><w:rPr><w:b/><w:color w:val=\"{color}\"/><w:sz w:val=\"{}\"/><w:szCs w:val=\"{}\"/></w:rPr></w:style>",
+            "<w:style w:type=\"paragraph\" w:styleId=\"Heading{lvl}\"><w:name w:val=\"heading {lvl}\"/><w:basedOn w:val=\"Normal\"/><w:next w:val=\"Normal\"/><w:uiPriority w:val=\"9\"/><w:qFormat/><w:pPr><w:keepNext/><w:keepLines/>{border}<w:spacing w:before=\"{}\" w:after=\"120\"/><w:outlineLvl w:val=\"{}\"/></w:pPr><w:rPr>{head_fonts}<w:b/><w:color w:val=\"{color}\"/><w:sz w:val=\"{}\"/><w:szCs w:val=\"{}\"/></w:rPr></w:style>",
             if lvl == 1 { 360 } else { 240 },
             i,
             hp,
@@ -466,8 +469,8 @@ fn numbering(nums: &[(usize, usize)]) -> String {
 
 pub fn write(doc: &Doc) -> Result<Vec<u8>, String> {
     let (pw, ph) = doc.page_size();
-    let m = doc.margin();
-    let text_w = pw - 2.0 * m;
+    let m = doc.margins();
+    let text_w = pw - m.left - m.right;
     let mut ctx = Ctx {
         doc,
         body: String::new(),
@@ -498,11 +501,14 @@ pub fn write(doc: &Doc) -> Result<Vec<u8>, String> {
     }
     let tw = |pt: f32| (pt * 20.0).round() as i32;
     let sect = format!(
-        "<w:sectPr><w:pgSz w:w=\"{}\" w:h=\"{}\"{}/><w:pgMar w:top=\"{m2}\" w:right=\"{m2}\" w:bottom=\"{m2}\" w:left=\"{m2}\" w:header=\"708\" w:footer=\"708\" w:gutter=\"0\"/></w:sectPr>",
+        "<w:sectPr><w:pgSz w:w=\"{}\" w:h=\"{}\"{}/><w:pgMar w:top=\"{}\" w:right=\"{}\" w:bottom=\"{}\" w:left=\"{}\" w:header=\"708\" w:footer=\"708\" w:gutter=\"0\"/></w:sectPr>",
         tw(pw),
         tw(ph),
         if pw > ph { " w:orient=\"landscape\"" } else { "" },
-        m2 = tw(m)
+        tw(m.top),
+        tw(m.right),
+        tw(m.bottom),
+        tw(m.left)
     );
     let document = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:document xmlns:w=\"{W}\" xmlns:r=\"{R}\" xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"><w:body>{}{sect}</w:body></w:document>",
@@ -520,9 +526,10 @@ pub fn write(doc: &Doc) -> Result<Vec<u8>, String> {
     let root_rels = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/><Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties\" Target=\"docProps/core.xml\"/><Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties\" Target=\"docProps/app.xml\"/></Relationships>";
     let now = super::now_iso();
     let core = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<cp:coreProperties xmlns:cp=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:dcterms=\"http://purl.org/dc/terms/\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"><dc:title>{}</dc:title><dc:creator>{}</dc:creator><dcterms:created xsi:type=\"dcterms:W3CDTF\">{now}</dcterms:created><dcterms:modified xsi:type=\"dcterms:W3CDTF\">{now}</dcterms:modified></cp:coreProperties>",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<cp:coreProperties xmlns:cp=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:dcterms=\"http://purl.org/dc/terms/\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"><dc:title>{}</dc:title><dc:creator>{}</dc:creator><cp:keywords>{}</cp:keywords><dcterms:created xsi:type=\"dcterms:W3CDTF\">{now}</dcterms:created><dcterms:modified xsi:type=\"dcterms:W3CDTF\">{now}</dcterms:modified></cp:coreProperties>",
         esc(&doc.title),
-        esc(&doc.author)
+        esc(&doc.author),
+        esc(&doc.keywords())
     );
     let app = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Properties xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/extended-properties\"><Application>Kadee Markdown</Application></Properties>";
     let settings = format!(

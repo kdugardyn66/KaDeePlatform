@@ -17,7 +17,7 @@ chrono.workspace = true
 kd-store.workspace = true
 # diagrams: SVG drawn into a bitmap here (GPUI 0.2's own SVG images come out with red and blue swapped)
 resvg = { version = "0.45", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 # video thumbnails from YouTube and Vimeo
 ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier", "gzip"] }
 serde_json.workspace = true

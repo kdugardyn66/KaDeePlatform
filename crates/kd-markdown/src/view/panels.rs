@@ -54,6 +54,7 @@ pub enum PromptKind {
     Watermark,
     OnlineVideo,
     TableSize,
+    PictureUrl,
 }
 
 impl PromptKind {
@@ -63,6 +64,7 @@ impl PromptKind {
             PromptKind::Link => "Link",
             PromptKind::Watermark => "Custom watermark",
             PromptKind::OnlineVideo => "Online video",
+            PromptKind::PictureUrl => "Picture from URL",
             PromptKind::TableSize => "Insert table",
         }
     }
@@ -73,6 +75,7 @@ impl PromptKind {
             PromptKind::Link => "Address: https://…, another-file.md or #heading",
             PromptKind::Watermark => "Text shown across every page",
             PromptKind::OnlineVideo => "YouTube or Vimeo link",
+            PromptKind::PictureUrl => "The picture's address (https://…)",
             PromptKind::TableSize => "Rows × columns, for example 4 x 3",
         }
     }
@@ -83,6 +86,7 @@ impl PromptKind {
             PromptKind::Link => "https://",
             PromptKind::Watermark => "DRAFT",
             PromptKind::OnlineVideo => "https://youtu.be/…",
+            PromptKind::PictureUrl => "https://",
             PromptKind::TableSize => "4 x 3",
         }
     }
@@ -100,6 +104,7 @@ pub enum Picked {
     Csv,
     Video,
     Include,
+    IncludePreview,
 }
 
 /// `path` as the document links it: relative to its folder when inside it, `<…>` with spaces.
@@ -269,7 +274,7 @@ impl MarkdownView {
             }
             PromptKind::Watermark => self.fm("watermark", cx).unwrap_or_default(),
             PromptKind::TableSize => "3 x 3".into(),
-            PromptKind::OnlineVideo => String::new(),
+            PromptKind::OnlineVideo | PromptKind::PictureUrl => String::new(),
         };
         self.prompt_input.update(cx, |i, cx| {
             i.set_placeholder(kind.placeholder(), cx);
@@ -303,6 +308,11 @@ impl MarkdownView {
             }
             PromptKind::Watermark => self.set_fm("watermark", (!v.is_empty()).then_some(v.as_str()), cx),
             PromptKind::OnlineVideo if !v.is_empty() => self.block(format!("![Video]({v})"), cx),
+            PromptKind::PictureUrl if !v.is_empty() => {
+                let name = md::media::file_name(&v);
+                let alt = name.rsplit_once('.').map(|(n, _)| n.to_string()).unwrap_or(name);
+                self.block(format!("![\u{1}{alt}\u{1}]({v})"), cx)
+            }
             PromptKind::TableSize => {
                 let nums: Vec<usize> = v.split(|c: char| !c.is_ascii_digit()).filter_map(|p| p.parse().ok()).collect();
                 match nums.as_slice() {
@@ -497,7 +507,11 @@ impl MarkdownView {
             Menu::Fonts(target) => {
                 let q = self.font_filter.read(cx).text().trim().to_lowercase();
                 let cmd = target.command(false);
-                let theme_label = if target == FontTarget::DocMono { "The theme's code font" } else { "The theme's font" };
+                let theme_label = match target {
+                    FontTarget::DocMono => "The theme's code font",
+                    FontTarget::DocSans | FontTarget::DocMath => "The body font",
+                    _ => "The theme's font",
+                };
                 let mut rows: Vec<AnyElement> = Vec::new();
                 if q.is_empty() {
                     rows.push(
@@ -695,6 +709,42 @@ impl MarkdownView {
 
     // ---- files ---------------------------------------------------------------------------------------
 
+    /// Insert › Picture from clipboard: the picture is saved in an `images` folder next to the
+    /// document and linked.
+    pub(super) fn paste_picture(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let image = cx.read_from_clipboard().and_then(|item| {
+            item.entries().iter().find_map(|e| match e {
+                gpui::ClipboardEntry::Image(i) => Some(i.clone()),
+                _ => None,
+            })
+        });
+        let Some(image) = image else {
+            self.toast("The clipboard holds no picture: copy one first", cx);
+            return;
+        };
+        let ext = match image.format {
+            gpui::ImageFormat::Png => "png",
+            gpui::ImageFormat::Jpeg => "jpg",
+            gpui::ImageFormat::Webp => "webp",
+            gpui::ImageFormat::Gif => "gif",
+            gpui::ImageFormat::Svg => "svg",
+            gpui::ImageFormat::Bmp => "bmp",
+            gpui::ImageFormat::Tiff => "tiff",
+        };
+        let base = self.base_dir();
+        let dir = base.clone().or_else(|| self.documents_dir.clone()).unwrap_or_else(std::env::temp_dir).join("images");
+        let path = dir.join(format!("pasted-{}.{ext}", chrono::Local::now().format("%Y%m%d-%H%M%S")));
+        if let Err(e) = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, &image.bytes)) {
+            self.toast(format!("Could not save the picture: {e}"), cx);
+            return;
+        }
+        let link = link_to(base.as_deref(), &path);
+        self.block(format!("![\u{1}Picture\u{1}]({link})"), cx);
+        if base.is_none() {
+            self.toast(format!("The picture is in {} — save the document to keep them together", dir.display()), cx);
+        }
+    }
+
     pub(super) fn pick_file(&mut self, title: &str, what: Picked, window: &mut Window, cx: &mut Context<Self>) {
         let rx = cx.prompt_for_paths(PathPromptOptions {
             files: true,
@@ -716,6 +766,9 @@ impl MarkdownView {
                     },
                     Picked::Video => this.block(format!("![\u{1}{name}\u{1}]({link}){{width=640}}"), cx),
                     Picked::Include => this.block(format!("@import \"{}\"", link.trim_start_matches('<').trim_end_matches('>')), cx),
+                    Picked::IncludePreview => {
+                        this.block(format!("@import \"{}\" {{preview}}", link.trim_start_matches('<').trim_end_matches('>')), cx)
+                    }
                 }
             });
         })

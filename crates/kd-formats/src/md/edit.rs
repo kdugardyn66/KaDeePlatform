@@ -478,7 +478,9 @@ pub fn set_front_matter(text: &str, sel: Selection, pairs: &[(&str, Option<&str>
     let span = front_matter_span(text);
     let mut lines: Vec<String> = span.map(|(_, _, b)| b.lines().map(str::to_string).collect()).unwrap_or_default();
     let quote = |v: &str| {
-        if v.contains([':', '#', '[', ']', '{', '}', '&', '*', '!', '|', '>', '\'', '"', '%', '@', '`'])
+        // a YAML list stays a list
+        let list = v.starts_with('[') && v.ends_with(']') && !v[1..v.len() - 1].contains(['[', ']', '"', ':', '#']);
+        if !list && v.contains([':', '#', '[', ']', '{', '}', '&', '*', '!', '|', '>', '\'', '"', '%', '@', '`'])
             || v.starts_with(' ')
             || v.ends_with(' ')
         {

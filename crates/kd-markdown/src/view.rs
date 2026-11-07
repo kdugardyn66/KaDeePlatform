@@ -90,6 +90,8 @@ pub struct MarkdownView {
     /// The panel open on the right (Paragraph settings).
     right: Option<para::RightPanel>,
     para_ui: para::ParaUi,
+    /// File › Properties.
+    props_ui: props::PropsUi,
     /// Colours picked lately (the colour pickers' Recent colors).
     recent_colors: Vec<u32>,
     /// More colors…: the colour being made.
@@ -137,6 +139,7 @@ mod files;
 mod color;
 mod panels;
 mod para;
+mod props;
 mod side;
 pub use panels::bind_present_keys;
 
@@ -227,8 +230,10 @@ impl MarkdownView {
             }),
         ];
         let (para_ui, para_subs) = para::ParaUi::new(window, cx);
+        let (props_ui, props_subs) = props::PropsUi::new(window, cx);
         let mut subs = subs;
         subs.extend(para_subs);
+        subs.extend(props_subs);
         let view = MarkdownView {
             focus: cx.focus_handle(),
             editor,
@@ -244,6 +249,7 @@ impl MarkdownView {
             author: String::new(),
             right: None,
             para_ui,
+            props_ui,
             recent_colors: Vec::new(),
             more_colors: None,
             nav_slides: false,
@@ -493,6 +499,7 @@ impl MarkdownView {
                 cx.emit(MarkdownEvent::Host(id))
             }
             id if id.starts_with("para.") => self.para_command(id, arg, window, cx),
+            "file.properties" => self.open_props(arg.as_deref(), window, cx),
             "file.print" | "file.exportPdf" => self.print(window, cx),
             "file.exportHtml" => self.export_html(window, cx),
             "file.copyRich" => {
@@ -639,6 +646,9 @@ impl MarkdownView {
             "insert.csv" => self.pick_file("Insert a CSV file as a table", panels::Picked::Csv, window, cx),
             "insert.video" => self.pick_file("Insert a video or audio file", panels::Picked::Video, window, cx),
             "insert.import" => self.pick_file("Include a file", panels::Picked::Include, window, cx),
+            "insert.importPreview" => self.pick_file("Include a file as a preview", panels::Picked::IncludePreview, window, cx),
+            "insert.pictureUrl" => self.open_prompt(panels::PromptKind::PictureUrl, window, cx),
+            "insert.pictureClipboard" => self.paste_picture(window, cx),
             "insert.molecule" => self.block("```molstar {pdb=1CRN height=360 title=\"Crambin\" spin=true}\n```".into(), cx),
             "insert.emoji" => match arg {
                 Some(t) => ed.update(cx, |e, cx| e.insert(&t, cx)),
@@ -692,7 +702,38 @@ impl MarkdownView {
             }
             "design.paper" | "design.orientation" | "design.margins" => {
                 if let Some(v) = arg {
-                    self.set_fm(&id["design.".len()..], Some(&v), cx);
+                    let text = ed.read(cx).text().to_string();
+                    let front = md::edit::front_matter(&text);
+                    let mut page = md::page::PageSetup::from_front(&|k| front.iter().find(|(key, _)| key == k).map(|(_, v)| v.clone()));
+                    match id {
+                        "design.paper" => {
+                            // the older names still work
+                            page.paper = match v.as_str() {
+                                "a4" => "a4paper".into(),
+                                "letter" => "letterpaper".into(),
+                                "legal" => "legalpaper".into(),
+                                "a5" => "a5paper".into(),
+                                other => other.to_string(),
+                            }
+                        }
+                        "design.orientation" => page.landscape = v == "landscape",
+                        _ => {
+                            page.margins = md::page::Margins::all(match v.as_str() {
+                                "narrow" => 36.0,
+                                "moderate" => 56.7,
+                                "wide" => 99.2,
+                                _ => 70.9,
+                            })
+                        }
+                    }
+                    let geometry = page.to_geometry();
+                    self.edit(cx, |t, s| {
+                        Some(md::edit::set_front_matter(
+                            t,
+                            s,
+                            &[("geometry", Some(&geometry)), ("paper", None), ("orientation", None), ("margins", None)],
+                        ))
+                    });
                 }
             }
             "design.watermark" => match arg {
@@ -700,7 +741,7 @@ impl MarkdownView {
                 Some(t) => self.set_fm("watermark", Some(&t), cx),
                 None => self.open_prompt(panels::PromptKind::Watermark, window, cx),
             },
-            "design.mainfont" | "design.monofont" | "design.fontsize" => match arg {
+            "design.mainfont" | "design.monofont" | "design.fontsize" | "design.sansfont" | "design.mathfont" => match arg {
                 Some(v) => {
                     let v = v.trim().to_string();
                     self.set_fm(&id["design.".len()..], (!v.is_empty()).then_some(v.as_str()), cx);
@@ -709,6 +750,8 @@ impl MarkdownView {
                     let menu = match id {
                         "design.mainfont" => Menu::Fonts(FontTarget::DocMain),
                         "design.monofont" => Menu::Fonts(FontTarget::DocMono),
+                        "design.sansfont" => Menu::Fonts(FontTarget::DocSans),
+                        "design.mathfont" => Menu::Fonts(FontTarget::DocMath),
                         _ => Menu::Sizes(FontTarget::DocSize),
                     };
                     self.open_menu_at(menu, window.mouse_position(), window, cx);
@@ -820,8 +863,20 @@ impl MarkdownView {
             }
             _ => self.toast(format!("{} comes in a later version of Kadee Markdown.", cmd.label), cx),
         }
-        if !matches!(id, "help.search" | "file.backstage" | "insert.date" | "insert.symbol" | "edit.find" | "edit.replace")
-            && self.menu.is_none()
+        if !matches!(
+            id,
+            "help.search"
+                | "file.backstage"
+                | "insert.date"
+                | "insert.symbol"
+                | "edit.find"
+                | "edit.replace"
+                | "file.properties"
+                | "review.comment"
+                | "view.comments"
+                | "help.feedback"
+                | "view.nav"
+        ) && self.menu.is_none()
             && self.prompt.is_none()
         {
             self.focus_editor(window, cx);
@@ -1168,7 +1223,7 @@ impl MarkdownView {
         }
     }
 
-    fn font_box(
+    pub(super) fn font_box(
         &mut self,
         cmd: &'static str,
         placeholder: &'static str,
@@ -2105,6 +2160,7 @@ impl Render for MarkdownView {
         let right_bar = (!self.focus_mode).then(|| self.right_bar(&pal, cx));
         let right_panel = self.right_panel(&pal, window, cx);
         let para_dialog = self.para_dialog(&pal, window, cx);
+        let props_dialog = self.props_dialog(&pal, cx);
         let more_colors = self.more_colors_card(&pal, cx);
         let browser = self.browser_card(&pal, cx);
         let split = self.split;
@@ -2161,6 +2217,11 @@ impl Render for MarkdownView {
                     this.more_colors = None;
                     cx.stop_propagation();
                     cx.notify();
+                    return;
+                }
+                if e.keystroke.key == "escape" && this.props_ui.tab.is_some() && this.menu.is_none() {
+                    this.close_props(window, cx);
+                    cx.stop_propagation();
                     return;
                 }
                 if e.keystroke.key == "escape" && this.para_ui.advanced.is_some() {
@@ -2223,6 +2284,7 @@ impl Render for MarkdownView {
             .children(info)
             .children(chooser)
             .children(para_dialog)
+            .children(props_dialog)
             .children(more_colors)
             .children(browser)
             .children(present)
