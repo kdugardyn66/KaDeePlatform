@@ -21,3 +21,8 @@ pub fn init(cx: &mut gpui::App) {
     commands::bind_keys(cx);
     view::bind_present_keys(cx);
 }
+
+/// The formatting of the paragraph at the cursor, as a menu's `fm` hands it over.
+pub(crate) fn md_para(fm: &dyn Fn(&str) -> Option<String>) -> kd_formats::md::para::ParaStyle {
+    fm("\u{0}para").map(|css| kd_formats::md::para::ParaStyle::from_css(&css)).unwrap_or_default()
+}

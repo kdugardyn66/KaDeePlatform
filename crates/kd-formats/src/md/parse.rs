@@ -125,6 +125,12 @@ pub enum Block {
         blocks: Vec<Block>,
         line: usize,
     },
+    /// Paragraphs with their own formatting (`<div style="…">` … `</div>`).
+    Styled {
+        style: super::para::ParaStyle,
+        blocks: Vec<Block>,
+        line: usize,
+    },
 }
 
 impl Block {
@@ -143,7 +149,8 @@ impl Block {
             | Block::SlideBreak { line }
             | Block::Toc { line }
             | Block::Html { line, .. }
-            | Block::Footnote { line, .. } => *line,
+            | Block::Footnote { line, .. }
+            | Block::Styled { line, .. } => *line,
         }
     }
 }
@@ -195,7 +202,38 @@ pub fn parse(text: &str) -> Parsed {
             out.blocks.push(b);
         }
     }
+    out.blocks = group_styled(std::mem::take(&mut out.blocks));
     out
+}
+
+/// `<div style="…">`, the blocks, `</div>` → one [`Block::Styled`] (nested ones too).
+fn group_styled(blocks: Vec<Block>) -> Vec<Block> {
+    // each open div: its style and line (none for the document), and its blocks so far
+    type Open = (Option<(super::para::ParaStyle, usize)>, Vec<Block>);
+    let mut stack: Vec<Open> = vec![(None, Vec::new())];
+    for b in blocks {
+        if let Block::Html { text, line } = &b {
+            let t = text.trim();
+            if let Some(style) = super::para::div_style(t) {
+                stack.push((Some((style, *line)), Vec::new()));
+                continue;
+            }
+            if t == "</div>" && stack.len() > 1 {
+                let (head, inner) = stack.pop().expect("open div");
+                let (style, line) = head.expect("a styled div");
+                stack.last_mut().expect("root").1.push(Block::Styled { style, blocks: inner, line });
+                continue;
+            }
+        }
+        stack.last_mut().expect("root").1.push(b);
+    }
+    // a div left open: keep its blocks
+    while stack.len() > 1 {
+        let (head, inner) = stack.pop().expect("open div");
+        let (style, line) = head.expect("a styled div");
+        stack.last_mut().expect("root").1.push(Block::Styled { style, blocks: inner, line });
+    }
+    stack.pop().map(|(_, b)| b).unwrap_or_default()
 }
 
 /// `key: value` lines of a front matter block (with or without the `---` fences).
@@ -517,9 +555,10 @@ pub fn word_count(parsed: &Parsed) -> usize {
             .map(|b| match b {
                 Block::Heading { inlines, .. } | Block::Paragraph { inlines, .. } => words(&inline_text(inlines)),
                 Block::List { items, .. } => items.iter().map(|i| blocks(&i.blocks)).sum(),
-                Block::Quote { blocks: inner, .. } | Block::Callout { blocks: inner, .. } | Block::Footnote { blocks: inner, .. } => {
-                    blocks(inner)
-                }
+                Block::Quote { blocks: inner, .. }
+                | Block::Callout { blocks: inner, .. }
+                | Block::Footnote { blocks: inner, .. }
+                | Block::Styled { blocks: inner, .. } => blocks(inner),
                 Block::Code { text, .. } => words(text),
                 Block::Table { header, rows, .. } => header.iter().chain(rows.iter().flatten()).map(|c| words(&inline_text(c))).sum(),
                 _ => 0,

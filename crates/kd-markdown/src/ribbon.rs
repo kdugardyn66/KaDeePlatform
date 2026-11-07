@@ -1,7 +1,7 @@
 //! The ribbon as MdCraft lays it out: tabs, groups, large / small / icon buttons, split
 //! buttons with menus, and galleries. This is data; `view.rs` draws it.
 
-use kd_formats::md::library;
+use kd_formats::md::{self, library};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Size {
@@ -40,6 +40,12 @@ pub enum Menu {
     Sizes(FontTarget),
     /// The File tab (the old menu).
     File,
+    /// Home › Line and paragraph spacing.
+    LineSpacing,
+    /// Home › Text direction.
+    Direction,
+    /// A colour picker: theme, standard and recent colours, More colours….
+    Color(ColorTarget),
     /// File › Open Recent: the last markdown files.
     Recent,
     /// File › Save As: the formats.
@@ -106,6 +112,37 @@ pub const HIGHLIGHTS: [(&str, &str); 8] = [
     ("#DDEBF7", "Soft blue"),
     ("#FCE4D6", "Soft orange"),
 ];
+
+/// What a colour picker colours.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ColorTarget {
+    Text,
+    Highlight,
+    /// The paragraph's shading.
+    Shading,
+    /// The paragraph's border (Paragraph › advanced settings).
+    Border,
+}
+
+impl ColorTarget {
+    pub fn title(self) -> &'static str {
+        match self {
+            ColorTarget::Text => "Font color",
+            ColorTarget::Highlight => "Highlight color",
+            ColorTarget::Shading => "Shading",
+            ColorTarget::Border => "Border color",
+        }
+    }
+    /// The command that applies a colour (`#RRGGBB`, "" for none).
+    pub fn command(self) -> &'static str {
+        match self {
+            ColorTarget::Text => "format.color",
+            ColorTarget::Highlight => "format.highlightColor",
+            ColorTarget::Shading => "para.shading",
+            ColorTarget::Border => "para.borderColor",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Btn {
@@ -251,8 +288,8 @@ pub fn tabs() -> Vec<Tab> {
                             ico("format.code"),
                             ico("format.sub"),
                             ico("format.sup"),
-                            ico("format.highlight").menu(Menu::Highlight),
-                            ico("format.color").menu(Menu::FontColor),
+                            ico("format.highlight").menu(Menu::Color(ColorTarget::Highlight)),
+                            ico("format.color").menu(Menu::Color(ColorTarget::Text)),
                             ico("format.clear"),
                         ]),
                     ])],
@@ -266,8 +303,15 @@ pub fn tabs() -> Vec<Tab> {
                             ico("format.checklist"),
                             ico("format.outdent"),
                             ico("format.indent"),
+                            ico("para.lineSpacing").drop(Menu::LineSpacing),
+                            ico("para.direction").drop(Menu::Direction),
                         ]),
                         row(vec![
+                            ico("para.alignLeft"),
+                            ico("para.alignCenter"),
+                            ico("para.alignRight"),
+                            ico("para.justify"),
+                            ico("para.shading").menu(Menu::Color(ColorTarget::Shading)),
                             ico("format.quote"),
                             ico("insert.hr"),
                             ico("insert.callout").menu(Menu::Callout),
@@ -557,7 +601,7 @@ pub fn entries(menu: Menu, fm: &dyn Fn(&str) -> Option<String>) -> Vec<Entry> {
             v
         }
         Menu::FontColor => vec![Entry::Header("Font color".into()), item("Red", "font-color", "format.color", Some("#C00000".into()))],
-        Menu::Symbol | Menu::Emoji | Menu::SlideBackground | Menu::Fonts(_) | Menu::Recent => Vec::new(),
+        Menu::Symbol | Menu::Emoji | Menu::SlideBackground | Menu::Fonts(_) | Menu::Recent | Menu::Color(_) => Vec::new(),
         Menu::SaveAs => SAVE_AS
             .iter()
             .map(|(ext, label, group, icon)| Entry::Item {
@@ -570,6 +614,44 @@ pub fn entries(menu: Menu, fm: &dyn Fn(&str) -> Option<String>) -> Vec<Entry> {
             })
             .collect(),
         Menu::Export => vec![item("Webpage (HTML)", "web", "file.exportHtml", None)],
+        Menu::LineSpacing => {
+            let st = crate::md_para(fm);
+            let cur = match st.line {
+                Some(md::para::LineSpacing::Multiple(m)) => Some(m),
+                _ => None,
+            };
+            let mut v: Vec<Entry> = ["1.0", "1.15", "1.5", "2.0", "2.5", "3.0"]
+                .iter()
+                .map(|n| {
+                    let on = cur.is_some_and(|c| (c - n.parse::<f32>().unwrap_or(0.0)).abs() < 0.01);
+                    Entry::Item { label: (*n).into(), icon: None, sub: None, cmd: "para.lineSpacing", arg: Some((*n).into()), checked: on }
+                })
+                .collect();
+            v.push(item("Line spacing options…", "pilcrow", "para.settings", Some("open".into())));
+            v.push(Entry::Sep);
+            let before = st.before.is_some_and(|b| b > 0.0);
+            let after_removed = st.after.is_some_and(|a| a <= 0.0);
+            v.push(item(
+                if before { "Remove space before paragraph" } else { "Add space before paragraph" },
+                "line-spacing",
+                "para.spaceBefore",
+                None,
+            ));
+            v.push(item(
+                if after_removed { "Add space after paragraph" } else { "Remove space after paragraph" },
+                "line-spacing",
+                "para.spaceAfter",
+                None,
+            ));
+            v
+        }
+        Menu::Direction => {
+            let rtl = crate::md_para(fm).rtl;
+            vec![
+                checked("Left-to-right", "text-direction", "para.ltr", "", !rtl),
+                checked("Right-to-left", "text-rtl", "para.rtl", "", rtl),
+            ]
+        }
         Menu::Sizes(target) => {
             let cur = match target {
                 FontTarget::DocSize | FontTarget::DocMain | FontTarget::DocMono => fm("fontsize"),

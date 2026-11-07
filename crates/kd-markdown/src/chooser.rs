@@ -72,7 +72,7 @@ fn minis(blocks: &[Block], max: usize, out: &mut Vec<Mini>) {
                 out.push(Mini::Figure)
             }
             Block::Code { .. } | Block::Math { .. } => out.push(Mini::Text(String::new())),
-            Block::Quote { blocks, .. } | Block::Callout { blocks, .. } => minis(blocks, max, out),
+            Block::Quote { blocks, .. } | Block::Callout { blocks, .. } | Block::Styled { blocks, .. } => minis(blocks, max, out),
             Block::Rule { .. } => out.push(Mini::Rule),
             Block::PageBreak { .. } | Block::SlideBreak { .. } => return,
             _ => {}

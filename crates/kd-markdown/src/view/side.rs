@@ -53,6 +53,11 @@ impl MarkdownView {
         if self.focus_mode { 0.0 } else { BAR_W + if self.side.is_some() { PANEL_W } else { 0.0 } }
     }
 
+    /// The width the toolbar and panel on the right take.
+    pub(super) fn right_width(&self) -> f32 {
+        if self.focus_mode { 0.0 } else { BAR_W + if self.right.is_some() { 300.0 } else { 0.0 } }
+    }
+
     /// The toolbar: one button per panel.
     pub(super) fn side_bar(&mut self, pal: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let (ic, ac) = icon_colors(pal);

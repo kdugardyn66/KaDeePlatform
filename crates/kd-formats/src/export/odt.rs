@@ -5,6 +5,7 @@ use std::fmt::Write as _;
 
 use super::xml::esc;
 use super::{Doc, Picture, Run, package, runs};
+use crate::md::para::{BorderStyle, LineSpacing, ParaAlign, ParaStyle, Special};
 use crate::md::{Align, Block, Inline, ListItem, Style};
 
 pub(crate) const NS: &str = "xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" xmlns:style=\"urn:oasis:names:tc:opendocument:xmlns:style:1.0\" xmlns:text=\"urn:oasis:names:tc:opendocument:xmlns:text:1.0\" xmlns:table=\"urn:oasis:names:tc:opendocument:xmlns:table:1.0\" xmlns:draw=\"urn:oasis:names:tc:opendocument:xmlns:drawing:1.0\" xmlns:fo=\"urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:meta=\"urn:oasis:names:tc:opendocument:xmlns:meta:1.0\" xmlns:svg=\"urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0\" xmlns:presentation=\"urn:oasis:names:tc:opendocument:xmlns:presentation:1.0\" xmlns:loext=\"urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0\"";
@@ -114,6 +115,9 @@ struct Ctx<'a> {
     mono: String,
     max_w_cm: f32,
     tables: usize,
+    /// Automatic paragraph styles for formatted paragraphs.
+    para_styles: String,
+    para_n: usize,
 }
 
 pub(crate) fn picture_frame(name: &str, href: &str, w_cm: f32, h_cm: f32, anchor: &str) -> String {
@@ -177,6 +181,41 @@ impl Ctx<'_> {
         let _ = write!(self.body, "<text:p text:style-name=\"{style}\">{content}</text:p>");
     }
 
+    /// The paragraphs in `xml` with `style` on top of theirs (an automatic style per style
+    /// used in them).
+    fn styled_paras(&mut self, xml: &str, style: &ParaStyle) -> String {
+        let props = para_props(style);
+        if props.is_empty() {
+            return xml.to_string();
+        }
+        let mut made: HashMap<String, String> = HashMap::new();
+        let mut cur = xml.to_string();
+        for tag in ["<text:p text:style-name=\"", "<text:h text:style-name=\""] {
+            let mut out = String::with_capacity(cur.len());
+            let mut rest = cur.as_str();
+            while let Some(p) = rest.find(tag) {
+                out.push_str(&rest[..p + tag.len()]);
+                rest = &rest[p + tag.len()..];
+                let end = rest.find('"').unwrap_or(0);
+                let parent = rest[..end].to_string();
+                let name = made.entry(parent.clone()).or_insert_with(|| {
+                    self.para_n += 1;
+                    let n = format!("PS{}", self.para_n);
+                    let _ = write!(
+                        self.para_styles,
+                        "<style:style style:name=\"{n}\" style:family=\"paragraph\" style:parent-style-name=\"{parent}\">{props}</style:style>"
+                    );
+                    n
+                });
+                out.push_str(name);
+                rest = &rest[end..];
+            }
+            out.push_str(rest);
+            cur = out;
+        }
+        cur
+    }
+
     fn blocks(&mut self, blocks: &[Block], quote: bool) {
         for b in blocks {
             self.block(b, quote);
@@ -197,6 +236,13 @@ impl Ctx<'_> {
             }
             Block::List { ordered, start, items, .. } => self.list(*ordered, *start, items, quote, true),
             Block::Quote { blocks, .. } => self.blocks(blocks, true),
+            Block::Styled { style, blocks, .. } => {
+                let before = self.body.len();
+                self.blocks(blocks, quote);
+                let inner = self.body.split_off(before);
+                let styled = self.styled_paras(&inner, style);
+                self.body.push_str(&styled);
+            }
             Block::Callout { kind, title, blocks, .. } => {
                 let t = title.clone().unwrap_or_else(|| {
                     let k = kind.to_lowercase();
@@ -460,6 +506,8 @@ pub fn write(doc: &Doc) -> Result<Vec<u8>, String> {
         mono,
         max_w_cm: (pw - 2.0 * doc.margin()) / 72.0 * 2.54,
         tables: 0,
+        para_styles: String::new(),
+        para_n: 0,
     };
     if doc.slides.is_empty() {
         let blocks = doc.parsed.blocks.clone();
@@ -478,9 +526,10 @@ pub fn write(doc: &Doc) -> Result<Vec<u8>, String> {
         }
     }
     let content = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-content {NS} office:version=\"1.3\"><office:automatic-styles>{}{}<style:style style:name=\"Tbl\" style:family=\"table\"><style:table-properties style:width=\"{:.2}cm\" table:align=\"margins\" fo:margin-bottom=\"0.3cm\"/></style:style><style:style style:name=\"TH\" style:family=\"table-cell\"><style:table-cell-properties fo:background-color=\"#f2f4f7\" fo:padding=\"0.1cm\" fo:border=\"0.5pt solid #d0d7de\"/></style:style><style:style style:name=\"TC\" style:family=\"table-cell\"><style:table-cell-properties fo:padding=\"0.1cm\" fo:border=\"0.5pt solid #d0d7de\"/></style:style></office:automatic-styles><office:body><office:text>{}</office:text></office:body></office:document-content>",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-content {NS} office:version=\"1.3\"><office:automatic-styles>{}{}{}<style:style style:name=\"Tbl\" style:family=\"table\"><style:table-properties style:width=\"{:.2}cm\" table:align=\"margins\" fo:margin-bottom=\"0.3cm\"/></style:style><style:style style:name=\"TH\" style:family=\"table-cell\"><style:table-cell-properties fo:background-color=\"#f2f4f7\" fo:padding=\"0.1cm\" fo:border=\"0.5pt solid #d0d7de\"/></style:style><style:style style:name=\"TC\" style:family=\"table-cell\"><style:table-cell-properties fo:padding=\"0.1cm\" fo:border=\"0.5pt solid #d0d7de\"/></style:style></office:automatic-styles><office:body><office:text>{}</office:text></office:body></office:document-content>",
         list_styles(),
         ctx.text.xml,
+        ctx.para_styles,
         ctx.max_w_cm,
         ctx.body
     );
@@ -494,4 +543,76 @@ pub fn write(doc: &Doc) -> Result<Vec<u8>, String> {
     ];
     files.extend(ctx.pictures);
     package(&files, &["mimetype"])
+}
+
+/// A paragraph's formatting as ODF paragraph properties.
+fn para_props(style: &ParaStyle) -> String {
+    let mut a = String::new();
+    if let Some(al) = style.align {
+        let v = match al {
+            ParaAlign::Left => "start",
+            ParaAlign::Center => "center",
+            ParaAlign::Right => "end",
+            ParaAlign::Justify => "justify",
+        };
+        let _ = write!(a, " fo:text-align=\"{v}\"");
+    }
+    match style.line {
+        Some(LineSpacing::Multiple(m)) => {
+            let _ = write!(a, " fo:line-height=\"{}%\"", (m * 100.0).round() as i32);
+        }
+        Some(LineSpacing::Exactly(pt)) => {
+            let _ = write!(a, " fo:line-height=\"{pt}pt\"");
+        }
+        None => {}
+    }
+    if let Some(v) = style.before {
+        let _ = write!(a, " fo:margin-top=\"{v:.2}cm\"");
+    }
+    if let Some(v) = style.after {
+        let _ = write!(a, " fo:margin-bottom=\"{v:.2}cm\"");
+    }
+    if style.left.is_some() || matches!(style.special, Some(Special::Hanging(_))) {
+        let _ = write!(a, " fo:margin-left=\"{:.2}cm\"", style.left_total());
+    }
+    if let Some(v) = style.right {
+        let _ = write!(a, " fo:margin-right=\"{v:.2}cm\"");
+    }
+    match style.special {
+        Some(Special::FirstLine(v)) => {
+            let _ = write!(a, " fo:text-indent=\"{v:.2}cm\"");
+        }
+        Some(Special::Hanging(v)) => {
+            let _ = write!(a, " fo:text-indent=\"-{v:.2}cm\"");
+        }
+        None => {}
+    }
+    if let Some(c) = style.background {
+        let _ = write!(a, " fo:background-color=\"#{c:06x}\"");
+    }
+    if let Some(b) = style.border {
+        let st = match b.style {
+            BorderStyle::Solid => "solid",
+            BorderStyle::Dashed => "dashed",
+            BorderStyle::Dotted => "dotted",
+            BorderStyle::Double => "double",
+        };
+        let _ = write!(a, " fo:border=\"{}pt {st} #{:06x}\"", b.width, b.color);
+    }
+    if style.background.is_some() || style.border.is_some() || style.padding.is_some() {
+        let _ = write!(a, " fo:padding=\"{:.2}cm\"", style.padding.unwrap_or(0.15));
+    }
+    if style.rtl {
+        a.push_str(" style:writing-mode=\"rl-tb\"");
+    }
+    if style.page_break_before {
+        a.push_str(" fo:break-before=\"page\"");
+    }
+    if style.keep_with_next {
+        a.push_str(" fo:keep-with-next=\"always\"");
+    }
+    if style.keep_together {
+        a.push_str(" fo:keep-together=\"always\"");
+    }
+    if a.is_empty() { String::new() } else { format!("<style:paragraph-properties{a}/>") }
 }

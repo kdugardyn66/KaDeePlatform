@@ -266,6 +266,19 @@ pub fn load(path: &str) -> Option<&'static [u8]> {
         "md/megaphone.a.svg" => include_bytes!("../icons/megaphone.a.svg"),
         "md/megaphone.svg" => include_bytes!("../icons/megaphone.svg"),
         "md/navigation.svg" => include_bytes!("../icons/navigation.svg"),
+        "md/align-left.svg" => include_bytes!("../icons/align-left.svg"),
+        "md/align-center.svg" => include_bytes!("../icons/align-center.svg"),
+        "md/align-right.svg" => include_bytes!("../icons/align-right.svg"),
+        "md/align-justify.svg" => include_bytes!("../icons/align-justify.svg"),
+        "md/line-spacing.a.svg" => include_bytes!("../icons/line-spacing.a.svg"),
+        "md/line-spacing.svg" => include_bytes!("../icons/line-spacing.svg"),
+        "md/text-direction.a.svg" => include_bytes!("../icons/text-direction.a.svg"),
+        "md/text-direction.svg" => include_bytes!("../icons/text-direction.svg"),
+        "md/text-rtl.a.svg" => include_bytes!("../icons/text-rtl.a.svg"),
+        "md/text-rtl.svg" => include_bytes!("../icons/text-rtl.svg"),
+        "md/shading.a.svg" => include_bytes!("../icons/shading.a.svg"),
+        "md/shading.svg" => include_bytes!("../icons/shading.svg"),
+        "md/eyedropper.svg" => include_bytes!("../icons/eyedropper.svg"),
         _ => return None,
     })
 }
@@ -275,6 +288,10 @@ pub fn has_accent(name: &str) -> bool {
     matches!(
         name,
         "accessibility"
+            | "line-spacing"
+            | "text-direction"
+            | "text-rtl"
+            | "shading"
             | "comment"
             | "comment-add"
             | "megaphone"

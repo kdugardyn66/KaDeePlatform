@@ -18,7 +18,9 @@ fn walk<'a>(blocks: &'a [Block], out: &mut Vec<&'a Block>) {
                     walk(&it.blocks, out);
                 }
             }
-            Block::Quote { blocks, .. } | Block::Callout { blocks, .. } | Block::Footnote { blocks, .. } => walk(blocks, out),
+            Block::Quote { blocks, .. } | Block::Callout { blocks, .. } | Block::Footnote { blocks, .. } | Block::Styled { blocks, .. } => {
+                walk(blocks, out)
+            }
             _ => {}
         }
     }

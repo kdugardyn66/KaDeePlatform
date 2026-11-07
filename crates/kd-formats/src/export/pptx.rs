@@ -162,7 +162,7 @@ impl Ctx<'_> {
                 Kind::Quote | Kind::Small => self.fg.clone(),
                 _ => self.fg.clone(),
             };
-            let algn = if center || p.kind == Kind::Center { " algn=\"ctr\"" } else { "" };
+            let algn = if center || p.centred() { " algn=\"ctr\"" } else { "" };
             let bullet = match &p.bullet {
                 Some(b) if !b.is_empty() => {
                     let indent = emu(s * 1.1);

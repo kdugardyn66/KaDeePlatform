@@ -24,6 +24,15 @@ pub(crate) struct Para {
     pub level: usize,
     /// "•", "1." … for list items.
     pub bullet: Option<String>,
+    /// Paragraph formatting (`<div style>` around it).
+    pub fmt: Option<crate::md::para::ParaStyle>,
+}
+
+impl Para {
+    /// Centred: a centred kind or a centred paragraph format.
+    pub fn centred(&self) -> bool {
+        self.kind == Kind::Center || self.fmt.as_ref().is_some_and(|f| f.align == Some(crate::md::para::ParaAlign::Center))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -42,10 +51,15 @@ fn text(t: &str, s: Style) -> Run {
 struct Builder<'a> {
     doc: &'a Doc,
     items: Vec<Item>,
+    /// The formatting of the `<div style>` the blocks are in.
+    fmt: Option<crate::md::para::ParaStyle>,
 }
 
 impl Builder<'_> {
-    fn para(&mut self, p: Para) {
+    fn para(&mut self, mut p: Para) {
+        if p.fmt.is_none() {
+            p.fmt = self.fmt.clone();
+        }
         match self.items.last_mut() {
             Some(Item::Paras(v)) => v.push(p),
             _ => self.items.push(Item::Paras(vec![p])),
@@ -57,11 +71,11 @@ impl Builder<'_> {
         if let [Inline::Image { url, alt, .. }] = inl {
             match self.doc.picture(url) {
                 Some(p) => self.items.push(Item::Picture(p)),
-                None => self.para(Para { runs: vec![text(&format!("[{alt}]"), Style::default())], kind, level, bullet }),
+                None => self.para(Para { fmt: None, runs: vec![text(&format!("[{alt}]"), Style::default())], kind, level, bullet }),
             }
             return;
         }
-        self.para(Para { runs: runs(inl), kind, level, bullet });
+        self.para(Para { fmt: None, runs: runs(inl), kind, level, bullet });
     }
 
     fn blocks(&mut self, blocks: &[Block], kind: Kind, level: usize) {
@@ -81,6 +95,11 @@ impl Builder<'_> {
                 }
             }
             Block::Quote { blocks, .. } => self.blocks(blocks, Kind::Quote, level),
+            Block::Styled { style, blocks, .. } => {
+                let outer = self.fmt.replace(style.clone());
+                self.blocks(blocks, kind, level);
+                self.fmt = outer;
+            }
             Block::Callout { kind: k, title, blocks, .. } => {
                 let color = match k.to_lowercase().as_str() {
                     "tip" => 0x1A7F37,
@@ -95,6 +114,7 @@ impl Builder<'_> {
                     c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
                 });
                 self.para(Para {
+                    fmt: None,
                     runs: vec![text(&t, Style { bold: true, color: Some(format!("#{color:06X}")), ..Style::default() })],
                     kind: Kind::Callout(color),
                     level,
@@ -105,6 +125,7 @@ impl Builder<'_> {
             Block::Code { info, text: code, .. } => match Picture::diagram(info, code) {
                 Some(p) => self.items.push(Item::Picture(p)),
                 None => self.para(Para {
+                    fmt: None,
                     runs: vec![text(code.trim_end_matches('\n'), Style::default())],
                     kind: Kind::Code,
                     level,
@@ -112,6 +133,7 @@ impl Builder<'_> {
                 }),
             },
             Block::Math { text: m, .. } => self.para(Para {
+                fmt: None,
                 runs: vec![text(&crate::md::math::to_unicode(m), Style { italic: true, ..Style::default() })],
                 kind: Kind::Center,
                 level,
@@ -127,6 +149,7 @@ impl Builder<'_> {
             Block::Toc { .. } => {
                 for h in crate::md::outline(&self.doc.parsed).iter().filter(|h| h.level <= 3) {
                     self.para(Para {
+                        fmt: None,
                         runs: vec![text(&h.text, Style { color: Some("#0969DA".into()), ..Style::default() })],
                         kind: Kind::Body,
                         level: h.level as usize,
@@ -146,11 +169,11 @@ impl Builder<'_> {
                     }
                 }
                 if !t.trim().is_empty() {
-                    self.para(Para { runs: vec![text(t.trim(), Style::default())], kind, level, bullet: None });
+                    self.para(Para { fmt: None, runs: vec![text(t.trim(), Style::default())], kind, level, bullet: None });
                 }
             }
             Block::Footnote { label, blocks, .. } => {
-                let mut sub = Builder { doc: self.doc, items: Vec::new() };
+                let mut sub = Builder { doc: self.doc, items: Vec::new(), fmt: self.fmt.clone() };
                 sub.blocks(blocks, Kind::Small, level);
                 if let Some(Item::Paras(v)) = sub.items.first_mut()
                     && let Some(p) = v.first_mut()
@@ -180,7 +203,7 @@ impl Builder<'_> {
                         rs.insert(0, text(if done { "☑ " } else { "☐ " }, Style::default()));
                     }
                     let bullet = if it.task.is_some() { String::new() } else { bullet.clone() };
-                    self.para(Para { runs: rs, kind, level, bullet: Some(bullet) });
+                    self.para(Para { fmt: None, runs: rs, kind, level, bullet: Some(bullet) });
                 }
                 Block::List { .. } => self.block(b, kind, level),
                 other => self.block(other, kind, level),
@@ -191,7 +214,7 @@ impl Builder<'_> {
 
 /// The blocks as items.
 pub(crate) fn flow(doc: &Doc, blocks: &[Block]) -> Vec<Item> {
-    let mut b = Builder { doc, items: Vec::new() };
+    let mut b = Builder { doc, items: Vec::new(), fmt: None };
     b.blocks(blocks, Kind::Body, 0);
     b.items
 }

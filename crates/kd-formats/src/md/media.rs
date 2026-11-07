@@ -243,7 +243,7 @@ pub fn as_links(blocks: &mut [Block]) {
                     as_links(&mut it.blocks);
                 }
             }
-            Block::Quote { blocks, .. } | Block::Callout { blocks, .. } => as_links(blocks),
+            Block::Quote { blocks, .. } | Block::Callout { blocks, .. } | Block::Styled { blocks, .. } => as_links(blocks),
             Block::Table { header, rows, .. } => {
                 for c in header.iter_mut() {
                     inline_links(c);

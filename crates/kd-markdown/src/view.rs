@@ -87,6 +87,13 @@ pub struct MarkdownView {
     adding_comment: bool,
     /// The writer's name, for comments (set by the host).
     pub author: String,
+    /// The panel open on the right (Paragraph settings).
+    right: Option<para::RightPanel>,
+    para_ui: para::ParaUi,
+    /// Colours picked lately (the colour pickers' Recent colors).
+    recent_colors: Vec<u32>,
+    /// More colors…: the colour being made.
+    more_colors: Option<color::ColorDialog>,
     nav_slides: bool,
     sync: bool,
     collapsed: bool,
@@ -127,7 +134,9 @@ pub struct MarkdownView {
 
 mod files;
 
+mod color;
 mod panels;
+mod para;
 mod side;
 pub use panels::bind_present_keys;
 
@@ -217,6 +226,9 @@ impl MarkdownView {
                 }
             }),
         ];
+        let (para_ui, para_subs) = para::ParaUi::new(window, cx);
+        let mut subs = subs;
+        subs.extend(para_subs);
         let view = MarkdownView {
             focus: cx.focus_handle(),
             editor,
@@ -230,6 +242,10 @@ impl MarkdownView {
             comment_input,
             adding_comment: false,
             author: String::new(),
+            right: None,
+            para_ui,
+            recent_colors: Vec::new(),
+            more_colors: None,
             nav_slides: false,
             sync: true,
             collapsed: false,
@@ -476,6 +492,7 @@ impl MarkdownView {
             | "file.clearRecent" | "file.options" | "view.light" | "view.dark" | "view.system" | "ai.ask" | "help.markdown" => {
                 cx.emit(MarkdownEvent::Host(id))
             }
+            id if id.starts_with("para.") => self.para_command(id, arg, window, cx),
             "file.print" | "file.exportPdf" => self.print(window, cx),
             "file.exportHtml" => self.export_html(window, cx),
             "file.copyRich" => {
@@ -854,6 +871,7 @@ impl MarkdownView {
             "view.dark" => cx.global::<Theme>().pref == ThemePref::Dark,
             "view.system" => cx.global::<Theme>().pref == ThemePref::System,
             "design.numbered" | "design.justify" => self.fm(&id["design.".len()..], cx).is_some_and(|v| v == "true"),
+            id if id.starts_with("para.") => self.para_checked(id, cx).unwrap_or(false),
             _ => false,
         }
     }
@@ -1818,6 +1836,9 @@ impl MarkdownView {
             if k == "\u{0}size" {
                 return md::style::style_value(&text, head, "font-size");
             }
+            if k == "\u{0}para" {
+                return Some(md::para::style_at(&text, head).to_css());
+            }
             md::edit::front_matter(&text).into_iter().find(|(key, _)| key == k).map(|(_, v)| v)
         };
         let (ic, ac) = icon_colors(pal);
@@ -2081,6 +2102,10 @@ impl Render for MarkdownView {
         let info = self.info_card(&pal, cx);
         let present = self.present_overlay(window, cx);
         let chooser = self.chooser_card(&pal, cx);
+        let right_bar = (!self.focus_mode).then(|| self.right_bar(&pal, cx));
+        let right_panel = self.right_panel(&pal, window, cx);
+        let para_dialog = self.para_dialog(&pal, window, cx);
+        let more_colors = self.more_colors_card(&pal, cx);
         let browser = self.browser_card(&pal, cx);
         let split = self.split;
         let editor_pane = (self.mode != ViewMode::Read).then(|| {
@@ -2132,6 +2157,18 @@ impl Render for MarkdownView {
             .on_action(cx.listener(|this, a: &RunMd, window, cx| this.run(a.id, None, window, cx)))
             .on_key_down(cx.listener(|this, e: &gpui::KeyDownEvent, window, cx| {
                 // Esc closes the File tab's windows and the cards
+                if e.keystroke.key == "escape" && this.more_colors.is_some() {
+                    this.more_colors = None;
+                    cx.stop_propagation();
+                    cx.notify();
+                    return;
+                }
+                if e.keystroke.key == "escape" && this.para_ui.advanced.is_some() {
+                    this.para_ui.advanced = None;
+                    cx.stop_propagation();
+                    cx.notify();
+                    return;
+                }
                 if e.keystroke.key == "escape" && (this.chooser || this.browser.is_some() || this.info.is_some()) {
                     this.chooser = false;
                     this.browser = None;
@@ -2156,11 +2193,14 @@ impl Render for MarkdownView {
                     .children(editor_pane)
                     .children(divider)
                     .children(preview_pane)
+                    .children(right_panel)
+                    .children(right_bar)
                     .when(dragging, |d| {
                         d.on_mouse_move(cx.listener(|this, e: &gpui::MouseMoveEvent, _, cx| {
                             let b = this.main_bounds.get();
                             let nav = this.side_width();
-                            let w = f32::from(b.size.width) - nav;
+                            let right = this.right_width();
+                            let w = f32::from(b.size.width) - nav - right;
                             if w > 100.0 {
                                 let x = f32::from(e.position.x - b.left()) - nav;
                                 this.split = (x / w).clamp(0.15, 0.85);
@@ -2182,6 +2222,8 @@ impl Render for MarkdownView {
             .children(prompt)
             .children(info)
             .children(chooser)
+            .children(para_dialog)
+            .children(more_colors)
             .children(browser)
             .children(present)
     }
@@ -2247,7 +2289,7 @@ impl Counts {
                         self.walk(&it.blocks);
                     }
                 }
-                md::Block::Quote { blocks, .. } | md::Block::Callout { blocks, .. } => self.walk(blocks),
+                md::Block::Quote { blocks, .. } | md::Block::Callout { blocks, .. } | md::Block::Styled { blocks, .. } => self.walk(blocks),
                 md::Block::Table { header, rows, .. } => {
                     self.tables += 1;
                     for c in header.iter().chain(rows.iter().flatten()) {

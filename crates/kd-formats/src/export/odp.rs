@@ -121,7 +121,7 @@ impl Ctx {
                 rs.insert(0, Run::Text(format!("{b}  "), Style::default()));
             }
             let indent = p.level as f32 * s * 1.2 + if matches!(p.kind, Kind::Quote | Kind::Callout(_)) { s } else { 0.0 };
-            let ps = self.para_style(center || p.kind == Kind::Center, indent, s * 0.3);
+            let ps = self.para_style(center || p.centred(), indent, s * 0.3);
             let x = self.runs(&rs, s, &color, &extra);
             let _ = write!(body, "<text:p text:style-name=\"{ps}\">{x}</text:p>");
         }

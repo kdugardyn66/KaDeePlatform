@@ -400,40 +400,90 @@ impl Writer {
             Kind::Small => ("59636E".to_string(), Style::default()),
             _ => (self.fg.clone(), Style::default()),
         };
-        let indent = p.level as f32 * s * 1.4 + if matches!(p.kind, Kind::Quote | Kind::Callout(_)) { s } else { 0.0 };
+        use crate::md::para::{LineSpacing, ParaAlign, Special};
+        const CM: f32 = 72.0 / 2.54;
+        let fmt = p.fmt.as_ref();
+        let left = fmt.map(|f| f.left_total() * CM).unwrap_or(0.0);
+        let right = fmt.and_then(|f| f.right).unwrap_or(0.0) * CM;
+        let first = match fmt.and_then(|f| f.special) {
+            Some(Special::FirstLine(v)) => v * CM,
+            Some(Special::Hanging(v)) => -v * CM,
+            None => 0.0,
+        };
+        let boxed = fmt.is_some_and(|f| f.background.is_some() || f.border.is_some());
+        let fpad = if boxed { fmt.and_then(|f| f.padding).unwrap_or(0.2) * CM } else { 0.0 };
+        let indent = p.level as f32 * s * 1.4 + if matches!(p.kind, Kind::Quote | Kind::Callout(_)) { s } else { 0.0 } + left;
         let mono = p.kind == Kind::Code;
-        let pad = if mono { 6.0 } else { 0.0 };
-        let inner_w = w - indent - 2.0 * pad;
+        let pad = if mono { 6.0 } else { fpad };
+        // a first-line indent narrows all lines a little (the lines are measured alike)
+        let inner_w = w - indent - right - 2.0 * pad - first.max(0.0);
         let lines = Self::lines(self.pieces(&p.runs, s, &color, &extra, mono), inner_w);
-        let lh = s * if mono { 1.3 } else { 1.35 };
-        let before = match p.kind {
-            Kind::Heading(1) => s * 0.8,
-            Kind::Heading(_) => s * 0.7,
+        let lh = match fmt.and_then(|f| f.line) {
+            Some(LineSpacing::Multiple(m)) => s * crate::md::para::SINGLE * m,
+            Some(LineSpacing::Exactly(pt)) => pt * s / size.max(1.0),
+            None => s * if mono { 1.3 } else { 1.35 },
+        };
+        let before = match (p.kind, fmt.and_then(|f| f.before)) {
+            (_, Some(b)) => b * CM,
+            (Kind::Heading(1), _) => s * 0.8,
+            (Kind::Heading(_), _) => s * 0.7,
             _ if p.level > 0 => s * 0.15,
             _ => s * 0.35,
         };
-        let total = before + lines.len() as f32 * lh + 2.0 * pad + s * 0.35;
+        let after = fmt.and_then(|f| f.after).map(|a| a * CM).unwrap_or(s * 0.35);
+        let total = before + lines.len() as f32 * lh + 2.0 * pad + after;
         if measure_only {
             return total;
         }
+        if !self.deck && fmt.is_some_and(|f| f.page_break_before) && self.y > self.margin + 1.0 {
+            self.new_page();
+        }
         if !self.deck {
             // headings stay with what follows
-            let keep = if matches!(p.kind, Kind::Heading(_)) { lh * 3.0 } else { lh.min(total) };
-            self.ensure(before + keep);
+            let keep = if matches!(p.kind, Kind::Heading(_)) || fmt.is_some_and(|f| f.keep_together) {
+                (lh * 3.0).max(total - before)
+            } else {
+                lh.min(total)
+            };
+            self.ensure(before + keep.min(self.ph - 2.0 * self.margin));
         }
         self.y += before;
         let top = self.y;
+        let box_h = lines.len() as f32 * lh + 2.0 * pad;
         if mono {
-            let h = lines.len() as f32 * lh + 2.0 * pad;
-            self.rect(x + indent, top, w - indent, h, "F6F8FA");
+            self.rect(x + indent, top, w - indent, box_h, "F6F8FA");
         }
-        for line in lines.iter() {
+        if let Some(f) = fmt {
+            let bx = x + indent - first.min(0.0).abs();
+            let bw = w - indent - right + first.min(0.0).abs();
+            if let Some(bg) = f.background {
+                self.rect(bx, top, bw, box_h, &format!("{bg:06X}"));
+            }
+            if let Some(b) = f.border {
+                let c = format!("{:06X}", b.color);
+                let (x2, y2) = (bx + bw, top + box_h);
+                self.line(bx, top, x2, top, &c, b.width);
+                self.line(bx, y2, x2, y2, &c, b.width);
+                self.line(bx, top, bx, y2, &c, b.width);
+                self.line(x2, top, x2, y2, &c, b.width);
+            }
+        }
+        let align = fmt.and_then(|f| f.align).or(if fmt.is_some_and(|f| f.rtl) { Some(ParaAlign::Right) } else { None });
+        for (i, line) in lines.iter().enumerate() {
             if !self.deck && self.y + lh > self.ph - self.margin {
                 self.new_page();
             }
             let lw: f32 = line.iter().map(|q| q.width).sum();
-            let lx = if center || p.kind == Kind::Center { x + (w - lw) / 2.0 } else { x + indent + pad };
-            self.draw_line(line, lx, self.y + pad + s * 1.0);
+            let shift = if i == 0 { first } else { 0.0 };
+            let avail = w - indent - right - 2.0 * pad;
+            let lx = if center || p.kind == Kind::Center || align == Some(ParaAlign::Center) {
+                x + indent + pad + (avail - lw) / 2.0
+            } else if align == Some(ParaAlign::Right) {
+                x + indent + pad + avail - lw
+            } else {
+                x + indent + pad + shift
+            };
+            self.draw_line(line, lx, self.y + pad + s * 1.0 + (lh - s * 1.35).max(0.0) / 2.0);
             self.y += lh;
         }
         self.y += 2.0 * pad;
@@ -461,7 +511,7 @@ impl Writer {
             }
             _ => {}
         }
-        self.y += s * 0.35;
+        self.y += after;
         total
     }
 

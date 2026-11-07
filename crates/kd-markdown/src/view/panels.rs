@@ -490,6 +490,9 @@ impl MarkdownView {
                 .text_color(pal.text_muted)
                 .child(t.to_string())
         };
+        if let Menu::Color(target) = m {
+            return Some(self.color_menu(target, pal, cx));
+        }
         match m {
             Menu::Fonts(target) => {
                 let q = self.font_filter.read(cx).text().trim().to_lowercase();

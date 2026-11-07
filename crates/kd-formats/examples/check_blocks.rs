@@ -17,7 +17,7 @@ fn walk(blocks: &[Block], file: &str) {
                     println!("{file}:{line} {kind:<16} {}", if ok { "drawn" } else { "NOT DRAWN" });
                 }
             }
-            Block::Quote { blocks, .. } | Block::Callout { blocks, .. } => walk(blocks, file),
+            Block::Quote { blocks, .. } | Block::Callout { blocks, .. } | Block::Styled { blocks, .. } => walk(blocks, file),
             _ => {}
         }
     }

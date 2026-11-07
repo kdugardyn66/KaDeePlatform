@@ -68,6 +68,13 @@ Kadee Markdown: MdCraft rebuilt natively in GPUI and opened in KadeeStudio's tab
 - **Navigation**: the headings and slides of the document with *Search the document*, as before, now in the panel.
 - **Help & Feedback**: Markdown guide, keyboard shortcuts, search commands, *Suggest an idea* and *Report a problem* (open a new GitHub issue with the version and system filled in).
 
+**Markdown enhancements, phase 1 — step 2: paragraph formatting and colours**
+
+- **Home › Paragraph**: *Align left*, *Center*, *Align right*, *Justify*; **Line and paragraph spacing ▾** (1.0, 1.15, 1.5, 2.0, 2.5, 3.0, *Line spacing options…*, *Add / Remove space before paragraph*, *Add / Remove space after paragraph*); **Text direction ▾** (Left-to-right, Right-to-left); **Shading ▾** (the paragraph's background).
+- **Toolbar on the right** with **Paragraph settings**: line spacing (*Multiple* or *Exactly*), spacing before and after, left and right indents, *Special* (first line or hanging), background colour; *Show advanced settings* opens **Paragraph – advanced settings** with *Indents & spacing*, *Line & page breaks* (page break before, keep with next, keep lines together), *Borders & fill* (none, solid, dashed, dotted, double; width; colour) and *Paddings*.
+- **Colour pickers** for Font color, Highlight color, Shading and Border color: *Automatic / No color*, the theme colours with five lighter and darker shades each, the standard colours, *Recent colors* and **More colors…** (a saturation × brightness square, a hue strip, *New* and *Current*, R G B and #hex).
+- Paragraph formatting is kept as inline CSS on a `<div>` around the paragraphs, so GitHub and other viewers show it too. The preview shows it; Word and OpenDocument exports get real paragraph properties (alignment, spacing, line spacing, indents, shading, borders, right-to-left, page breaks); the PDF export lays out alignment, indents, line spacing, spacing, shading and borders; slide decks keep centring.
+
 ## 0.1.0 — 2026-11-03
 
 The KaDee Platform's first version: KadeeStudio's start screen as a standalone GPUI app.

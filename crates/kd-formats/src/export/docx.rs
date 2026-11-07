@@ -4,6 +4,7 @@ use std::fmt::Write as _;
 
 use super::xml::esc;
 use super::{Doc, Picture, Run, package, runs};
+use crate::md::para::{BorderStyle, LineSpacing, ParaAlign, ParaStyle, Special};
 use crate::md::{Align, Block, ListItem, Style};
 
 const W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
@@ -220,6 +221,12 @@ impl Ctx<'_> {
                 }
             }
             Block::Quote { blocks, .. } => self.blocks(blocks, quote + 1, list),
+            Block::Styled { style, blocks, .. } => {
+                let before = self.body.len();
+                self.blocks(blocks, quote, list);
+                let inner = self.body.split_off(before);
+                self.body.push_str(&styled_paras(&inner, style));
+            }
             Block::Callout { kind, title, blocks, .. } => {
                 let color = match kind.to_lowercase().as_str() {
                     "tip" => "1A7F37",
@@ -534,4 +541,178 @@ pub fn write(doc: &Doc) -> Result<Vec<u8>, String> {
     ];
     files.extend(ctx.media);
     package(&files, &[])
+}
+
+/// The order of a paragraph's properties in `<w:pPr>` (Word is strict about it).
+const PPR_ORDER: [&str; 36] = [
+    "pStyle",
+    "keepNext",
+    "keepLines",
+    "pageBreakBefore",
+    "framePr",
+    "widowControl",
+    "numPr",
+    "suppressLineNumbers",
+    "pBdr",
+    "shd",
+    "tabs",
+    "suppressAutoHyphens",
+    "kinsoku",
+    "wordWrap",
+    "overflowPunct",
+    "topLinePunct",
+    "autoSpaceDE",
+    "autoSpaceDN",
+    "bidi",
+    "adjustRightInd",
+    "snapToGrid",
+    "spacing",
+    "ind",
+    "contextualSpacing",
+    "mirrorIndents",
+    "suppressOverlap",
+    "jc",
+    "textDirection",
+    "textAlignment",
+    "textboxTightWrap",
+    "outlineLvl",
+    "divId",
+    "cnfStyle",
+    "rPr",
+    "sectPr",
+    "pPrChange",
+];
+
+/// The elements of a `<w:pPr>`: (name, xml).
+fn ppr_elements(inner: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while let Some(p) = inner[i..].find("<w:").map(|p| p + i) {
+        let name_end = inner[p + 3..].find([' ', '/', '>']).map(|e| p + 3 + e).unwrap_or(inner.len());
+        let name = inner[p + 3..name_end].to_string();
+        let tag_end = inner[p..].find('>').map(|e| p + e + 1).unwrap_or(inner.len());
+        let end = if inner[..tag_end].ends_with("/>") {
+            tag_end
+        } else {
+            let close = format!("</w:{name}>");
+            inner[tag_end..].find(&close).map(|e| tag_end + e + close.len()).unwrap_or(inner.len())
+        };
+        out.push((name, inner[p..end].to_string()));
+        i = end;
+    }
+    out
+}
+
+/// A paragraph's formatting as `<w:pPr>` elements.
+fn style_ppr(style: &ParaStyle) -> Vec<(String, String)> {
+    let tw = |cm: f32| (cm * 566.93).round() as i32;
+    let mut v: Vec<(String, String)> = Vec::new();
+    let mut add = |n: &str, x: String| v.push((n.to_string(), x));
+    if style.keep_with_next {
+        add("keepNext", "<w:keepNext/>".into());
+    }
+    if style.keep_together {
+        add("keepLines", "<w:keepLines/>".into());
+    }
+    if style.page_break_before {
+        add("pageBreakBefore", "<w:pageBreakBefore/>".into());
+    }
+    if let Some(b) = style.border {
+        let val = match b.style {
+            BorderStyle::Solid => "single",
+            BorderStyle::Dashed => "dashed",
+            BorderStyle::Dotted => "dotted",
+            BorderStyle::Double => "double",
+        };
+        let sz = (b.width * 8.0).round().clamp(2.0, 96.0) as i32;
+        let side = |s: &str| format!("<w:{s} w:val=\"{val}\" w:sz=\"{sz}\" w:space=\"4\" w:color=\"{:06X}\"/>", b.color);
+        add("pBdr", format!("<w:pBdr>{}{}{}{}</w:pBdr>", side("top"), side("left"), side("bottom"), side("right")));
+    }
+    if let Some(c) = style.background {
+        add("shd", format!("<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"{c:06X}\"/>"));
+    }
+    if style.rtl {
+        add("bidi", "<w:bidi/>".into());
+    }
+    let mut sp = String::new();
+    if let Some(b) = style.before {
+        let _ = write!(sp, " w:before=\"{}\"", tw(b));
+    }
+    if let Some(a) = style.after {
+        let _ = write!(sp, " w:after=\"{}\"", tw(a));
+    }
+    match style.line {
+        Some(LineSpacing::Multiple(m)) => {
+            let _ = write!(sp, " w:line=\"{}\" w:lineRule=\"auto\"", (m * 240.0).round() as i32);
+        }
+        Some(LineSpacing::Exactly(pt)) => {
+            let _ = write!(sp, " w:line=\"{}\" w:lineRule=\"exact\"", (pt * 20.0).round() as i32);
+        }
+        None => {}
+    }
+    if !sp.is_empty() {
+        add("spacing", format!("<w:spacing{sp}/>"));
+    }
+    let mut ind = String::new();
+    if style.left.is_some() || matches!(style.special, Some(Special::Hanging(_))) {
+        let _ = write!(ind, " w:left=\"{}\"", tw(style.left_total()));
+    }
+    if let Some(r) = style.right {
+        let _ = write!(ind, " w:right=\"{}\"", tw(r));
+    }
+    match style.special {
+        Some(Special::FirstLine(f)) => {
+            let _ = write!(ind, " w:firstLine=\"{}\"", tw(f));
+        }
+        Some(Special::Hanging(h)) => {
+            let _ = write!(ind, " w:hanging=\"{}\"", tw(h));
+        }
+        None => {}
+    }
+    if !ind.is_empty() {
+        add("ind", format!("<w:ind{ind}/>"));
+    }
+    if let Some(a) = style.align {
+        let val = match a {
+            ParaAlign::Left => "left",
+            ParaAlign::Center => "center",
+            ParaAlign::Right => "right",
+            ParaAlign::Justify => "both",
+        };
+        add("jc", format!("<w:jc w:val=\"{val}\"/>"));
+    }
+    v
+}
+
+/// The paragraphs in `xml` with `style` added to their properties.
+fn styled_paras(xml: &str, style: &ParaStyle) -> String {
+    let ours = style_ppr(style);
+    if ours.is_empty() {
+        return xml.to_string();
+    }
+    let mut out = String::with_capacity(xml.len() + 64);
+    let mut rest = xml;
+    while let Some(p) = rest.find("<w:p>") {
+        out.push_str(&rest[..p + 5]);
+        rest = &rest[p + 5..];
+        let mut els = Vec::new();
+        if let Some(r) = rest.strip_prefix("<w:pPr>")
+            && let Some(e) = r.find("</w:pPr>")
+        {
+            els = ppr_elements(&r[..e]);
+            rest = &r[e + 8..];
+        }
+        for (name, x) in &ours {
+            els.retain(|(n, _)| n != name);
+            els.push((name.clone(), x.clone()));
+        }
+        els.sort_by_key(|(n, _)| PPR_ORDER.iter().position(|o| o == n).unwrap_or(PPR_ORDER.len()));
+        out.push_str("<w:pPr>");
+        for (_, x) in els {
+            out.push_str(&x);
+        }
+        out.push_str("</w:pPr>");
+    }
+    out.push_str(rest);
+    out
 }

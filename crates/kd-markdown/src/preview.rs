@@ -497,6 +497,61 @@ impl R {
                     .children(rows)
                     .into_any_element()
             }
+            Block::Styled { style, blocks, line } => {
+                use md::para::{LineSpacing, ParaAlign, Special};
+                // 1 cm on screen at this zoom
+                let cm = s / 16.0 * 37.8;
+                // a first-line indent: em spaces in front of each paragraph (the preview cannot
+                // indent a first line on its own)
+                let blocks: Vec<Block> = match style.special {
+                    Some(Special::FirstLine(f)) if f > 0.0 => {
+                        let n = ((f * cm) / s).round().max(1.0) as usize;
+                        blocks
+                            .iter()
+                            .map(|b| match b {
+                                Block::Paragraph { inlines, line } => {
+                                    let mut i = vec![Inline::Text("\u{2003}".repeat(n), md::Style::default())];
+                                    i.extend(inlines.iter().cloned());
+                                    Block::Paragraph { inlines: i, line: *line }
+                                }
+                                b => b.clone(),
+                            })
+                            .collect()
+                    }
+                    _ => blocks.clone(),
+                };
+                let inner = self.blocks(&blocks, depth);
+                let boxed = style.background.is_some() || style.border.is_some();
+                let pad = style.padding.unwrap_or(if boxed { 0.2 } else { 0.0 }) * cm;
+                // the last block's own space below gives way to the paragraph's
+                let inner = if style.after.is_some() || boxed {
+                    div().flex().flex_col().mb(-gap).children(inner)
+                } else {
+                    div().flex().flex_col().children(inner)
+                };
+                self.block(*line)
+                    .when_some(style.before, |d, b| d.mt(px(b * cm)))
+                    .mb(match style.after {
+                        Some(a) => px(a * cm),
+                        None if boxed => gap,
+                        None => px(0.0),
+                    })
+                    .pl(px(style.left_total() * cm + pad))
+                    .when_some(style.right, |d, r| d.mr(px(r * cm)))
+                    .when(pad > 0.0, |d| d.pt(px(pad)).pb(px(pad)).pr(px(pad)))
+                    .when_some(style.background, |d, c| d.bg(gpui::rgb(c)))
+                    .when_some(style.border, |d, b| d.border(px((b.width * 96.0 / 72.0).max(1.0))).border_color(gpui::rgb(b.color)))
+                    .when_some(style.line, |d, l| {
+                        d.line_height(px(match l {
+                            LineSpacing::Multiple(m) => s * m * md::para::SINGLE,
+                            LineSpacing::Exactly(pt) => pt * s / 12.0,
+                        }))
+                    })
+                    .when(matches!(style.align, Some(ParaAlign::Center)), |d| d.text_center())
+                    .when(matches!(style.align, Some(ParaAlign::Right)) || (style.rtl && style.align.is_none()), |d| d.text_right())
+                    .child(inner)
+                    .into_any_element()
+            }
             Block::Quote { blocks, line } => {
                 let inner = self.with_color(col.muted, |r| r.blocks(blocks, depth));
                 self.block(*line)
