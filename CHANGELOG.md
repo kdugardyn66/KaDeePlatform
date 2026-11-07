@@ -82,6 +82,29 @@ Kadee Markdown: MdCraft rebuilt natively in GPUI and opened in KadeeStudio's tab
 - **File › Properties** opens **Document properties**, kept in the front matter with Pandoc's names: *Document* (title, subtitle, author(s), date with *Today*, abstract, keywords), *Fonts* (mainfont, sansfont for headings and tables, monofont, mathfont, fontsize), *Page layout* (paper A4 / Letter / Legal / A5 / B5 / Executive, portrait or landscape, margins — presets or each edge, theme, table of contents with its depth, numbered headings) and *Language* (text direction).
 - What they do: `geometry` sets the paper, orientation and margins in every export (Design › Size, Orientation and Margins write it too; the older keys still work); `toc` and `toc-depth` put a table of contents at the top; `numbersections` numbers the headings 1, 1.1 … (a single level-1 heading is the title and stays unnumbered); `abstract` shows under the title; `keywords` and the authors go into the files' metadata; `sansfont` and `mathfont` set the headings' and formulas' fonts; `dir: rtl` turns the web page right to left.
 
+**Markdown enhancements, phase 1 — step 4: Table settings and Picture settings**
+
+- **The toolbar on the right** has two more buttons, **Table settings** and **Picture settings**. They are lit when the cursor is in a table or on a picture, and their panels change that table or picture.
+- **Table settings**:
+  - *Rows*: Header row, Total row, Banded rows. *Columns*: First column, Last column, Banded columns.
+  - *Select from template*: eight looks (Plain, Grid, Light, Blue, Green, Orange, Gray, Dark), each drawn as a small table.
+  - *Borders*: All, Outer, Inner, Rows or None, the line width and its colour. *Background color* for the cells.
+  - *Rows & columns ▾*: insert a row above or below, insert a column left or right, delete the row, the column or the table, tidy the columns.
+  - *Rows & columns size*: the table width and the row height, *Automatically resize to fit content*, and *Allow row to break across pages*.
+  - The look is kept in a wrapper round the table, `<div data-table="banded-rows; template: blue; border: all 1pt #4472c4">`. Other Markdown programs ignore it.
+- **Picture settings**:
+  - *Size*: the width in cm, with the height that follows and the picture's own size. *Actual size*, *Fit to margin*, and *Crop ▾* (Original, 1:1, 4:3, 3:2, 16:9, 3:4, 2:3; the middle is kept).
+  - *Opacity*: a slider and a percentage.
+  - *Rotation*: rotate left or right 90°, any angle, *Flip horizontal* and *Flip vertical*.
+  - *Wrapping style*: In line, Left, Right, or Top and bottom.
+  - *Replace image ▾*: from the clipboard, a file or a URL. The picture keeps its settings.
+  - *Reset picture*.
+  - A styled picture is written as `<img src alt style="…">` with CSS; a plain one goes back to `![alt](file)`.
+- **Everywhere**: the preview, Word, OpenDocument, PDF and the web page show the table looks (cell colours, bold header, total and first or last column, borders, width, row height, fit, rows kept together) and the pictures as styled (cut, turned, mirrored, see-through, at their width and side).
+  - In Word and OpenDocument, text flows round a picture set to Left or Right.
+  - In PDF and the preview, such a picture sits at that side above its text.
+- Rows & columns operations keep the cursor in its row.
+
 ## 0.1.0 — 2026-11-03
 
 The KaDee Platform's first version: KadeeStudio's start screen as a standalone GPUI app.

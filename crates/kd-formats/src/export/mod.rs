@@ -194,6 +194,15 @@ impl Doc {
         Picture::from_file(&p)
     }
 
+    /// A picture with its style applied.
+    pub fn styled_picture(&self, url: &str, style: Option<&md::look::ImgStyle>) -> Option<Picture> {
+        let p = self.picture(url)?;
+        Some(match style {
+            Some(s) => p.styled(s),
+            None => p,
+        })
+    }
+
     /// A slide deck's colours: (background, text, headings) as `RRGGBB`.
     pub fn slide_colors(&self, s: &SlideDoc) -> (String, String, String) {
         let hex = |c: u32| format!("{c:06X}");
@@ -247,9 +256,43 @@ pub(crate) struct Picture {
     pub ext: &'static str,
     pub width: u32,
     pub height: u32,
+    /// The size in points the document asks for (a picture's style), when it sets one.
+    pub display: Option<(f32, f32)>,
+    /// Where it sits among the text.
+    pub wrap: md::look::Wrap,
 }
 
 impl Picture {
+    /// The picture as its style shows it: cut, turned, mirrored and see-through pixels, and
+    /// the width it is given.
+    pub fn styled(self, s: &md::look::ImgStyle) -> Picture {
+        let pixel_ops =
+            s.crop.is_some() || s.flip_h || s.flip_v || s.rotate.rem_euclid(360.0) != 0.0 || s.opacity.is_some_and(|o| o < 0.999);
+        let width_pt = s.width.map(|cm| cm / 2.54 * 72.0);
+        let (w0, h0) = (self.width as f32 * 0.75, self.height as f32 * 0.75);
+        let display = width_pt.map(|wp| md::look::styled_size(w0, h0, s, Some(wp)));
+        let wrap = s.wrap;
+        if !pixel_ops {
+            return Picture { display, wrap, ..self };
+        }
+        let Ok(img) = image::load_from_memory(&self.data) else { return self };
+        // diagrams are drawn at more pixels than their size
+        let density = img.width() as f32 / self.width.max(1) as f32;
+        let out = md::look::styled_pixels(img.to_rgba8(), s);
+        let mut buf = Cursor::new(Vec::new());
+        if image::DynamicImage::ImageRgba8(out.clone()).write_to(&mut buf, image::ImageFormat::Png).is_err() {
+            return self;
+        }
+        Picture {
+            data: buf.into_inner(),
+            ext: "png",
+            width: (out.width() as f32 / density).round() as u32,
+            height: (out.height() as f32 / density).round() as u32,
+            display,
+            wrap,
+        }
+    }
+
     /// A picture on the web (fetched, with a time limit).
     fn from_web(url: &str) -> Option<Picture> {
         let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(10))).build().into();
@@ -283,12 +326,12 @@ impl Picture {
         let img = image::load_from_memory(&data).ok()?;
         let (width, height) = (img.width(), img.height());
         match ext.as_str() {
-            "png" => Some(Picture { data, ext: "png", width, height }),
-            "jpg" | "jpeg" => Some(Picture { data, ext: "jpeg", width, height }),
+            "png" => Some(Picture { data, ext: "png", width, height, display: None, wrap: md::look::Wrap::Inline }),
+            "jpg" | "jpeg" => Some(Picture { data, ext: "jpeg", width, height, display: None, wrap: md::look::Wrap::Inline }),
             _ => {
                 let mut out = Cursor::new(Vec::new());
                 img.write_to(&mut out, image::ImageFormat::Png).ok()?;
-                Some(Picture { data: out.into_inner(), ext: "png", width, height })
+                Some(Picture { data: out.into_inner(), ext: "png", width, height, display: None, wrap: md::look::Wrap::Inline })
             }
         }
     }
@@ -305,9 +348,14 @@ impl Picture {
 
     /// Size in points for `max_w` points wide at most (96 pixels per inch).
     pub fn points(&self, max_w: f32) -> (f32, f32) {
-        let (w, h) = (self.width as f32 * 0.75, self.height as f32 * 0.75);
+        let (w, h) = self.display.unwrap_or((self.width as f32 * 0.75, self.height as f32 * 0.75));
         if w > max_w { (max_w, h * max_w / w) } else { (w, h) }
     }
+}
+
+/// An SVG drawn as PNG bytes at twice its size (the preview's styled pictures).
+pub fn svg_picture(svg: &str) -> Option<Vec<u8>> {
+    svg_png(svg, 2.0).map(|p| p.data)
 }
 
 /// An SVG drawn as a PNG picture at `scale` × its size.
@@ -326,7 +374,14 @@ pub(crate) fn svg_png(svg: &str, scale: f32) -> Option<Picture> {
     pixmap.fill(resvg::tiny_skia::Color::WHITE);
     resvg::render(&tree, resvg::tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
     let data = pixmap.encode_png().ok()?;
-    Some(Picture { data, ext: "png", width: (size.width()) as u32, height: (size.height()) as u32 })
+    Some(Picture {
+        data,
+        ext: "png",
+        width: (size.width()) as u32,
+        height: (size.height()) as u32,
+        display: None,
+        wrap: md::look::Wrap::Inline,
+    })
 }
 
 /// One piece of inline content, flattened for the writers.
@@ -334,8 +389,8 @@ pub(crate) fn svg_png(svg: &str, scale: f32) -> Option<Picture> {
 pub(crate) enum Run {
     Text(String, Style),
     Break,
-    /// A picture inside a paragraph (alt text when it cannot be embedded).
-    Image(String, String),
+    /// A picture inside a paragraph (alt text when it cannot be embedded) and its style.
+    Image(String, String, Option<Box<md::look::ImgStyle>>),
 }
 
 /// Inline content as runs: math as Unicode italics, footnote references as `[n]`, emoji
@@ -346,7 +401,7 @@ pub(crate) fn runs(inlines: &[Inline]) -> Vec<Run> {
         match i {
             Inline::Text(t, s) => out.push(Run::Text(t.clone(), s.clone())),
             Inline::Break => out.push(Run::Break),
-            Inline::Image { url, alt, .. } => out.push(Run::Image(url.clone(), alt.clone())),
+            Inline::Image { url, alt, style, .. } => out.push(Run::Image(url.clone(), alt.clone(), style.clone())),
             Inline::Math { text, display } => {
                 let s = Style { italic: true, ..Style::default() };
                 if *display {

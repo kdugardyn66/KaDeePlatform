@@ -70,6 +70,62 @@ impl Asset for WebPicture {
     }
 }
 
+/// A picture as its style shows it (cut, turned, mirrored, see-through): a file or a web
+/// address, and the style as CSS.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StyledSource {
+    pub src: String,
+    pub css: String,
+}
+
+pub struct StyledPicture;
+
+impl Asset for StyledPicture {
+    type Source = StyledSource;
+    type Output = Option<Arc<RenderImage>>;
+
+    fn load(source: Self::Source, cx: &mut App) -> impl Future<Output = Self::Output> + Send + 'static {
+        let executor = cx.background_executor().clone();
+        async move {
+            executor
+                .spawn(async move {
+                    let bytes = if source.src.starts_with("http://") || source.src.starts_with("https://") {
+                        let agent: ureq::Agent =
+                            ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(10))).build().into();
+                        let mut resp = agent.get(&source.src).call().ok()?;
+                        resp.body_mut().with_config().limit(25 * 1024 * 1024).read_to_vec().ok()?
+                    } else {
+                        std::fs::read(&source.src).ok()?
+                    };
+                    let style = kd_formats::md::look::ImgStyle::from_css(&source.css);
+                    let rgba = if bytes.starts_with(b"<svg") || bytes.starts_with(b"<?xml") {
+                        let svg = kd_formats::export::svg_picture(std::str::from_utf8(&bytes).ok()?)?;
+                        image::load_from_memory(&svg).ok()?.to_rgba8()
+                    } else {
+                        image::load_from_memory(&bytes).ok()?.to_rgba8()
+                    };
+                    rgba_image(kd_formats::md::look::styled_pixels(rgba, &style))
+                })
+                .await
+        }
+    }
+}
+
+/// A picture's size in pixels, read from its header (remembered).
+pub fn picture_size(path: &std::path::Path) -> Option<(u32, u32)> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    type Sizes = Mutex<HashMap<PathBuf, Option<(u32, u32)>>>;
+    static SIZES: OnceLock<Sizes> = OnceLock::new();
+    let map = SIZES.get_or_init(Default::default);
+    if let Some(s) = map.lock().ok()?.get(path) {
+        return *s;
+    }
+    let size = image::image_dimensions(path).ok();
+    map.lock().ok()?.insert(path.to_path_buf(), size);
+    size
+}
+
 /// A frame one second in (or the first one) as PNG bytes, with ffmpeg.
 fn video_frame(path: &std::path::Path) -> Option<Vec<u8>> {
     let ffmpeg = ffmpeg()?;
@@ -133,7 +189,10 @@ fn fetch(url: &str) -> Option<Vec<u8>> {
 
 /// PNG or JPEG bytes → a GPUI image (BGRA).
 fn to_render_image(bytes: &[u8]) -> Option<Arc<RenderImage>> {
-    let img = image::load_from_memory(bytes).ok()?.to_rgba8();
+    rgba_image(image::load_from_memory(bytes).ok()?.to_rgba8())
+}
+
+fn rgba_image(img: image::RgbaImage) -> Option<Arc<RenderImage>> {
     let (w, h) = img.dimensions();
     let mut data = img.into_raw();
     for px in data.chunks_exact_mut(4) {

@@ -135,7 +135,7 @@ impl MarkdownView {
         cx.notify();
     }
 
-    fn base_dir(&self) -> Option<PathBuf> {
+    pub(super) fn base_dir(&self) -> Option<PathBuf> {
         self.path.as_ref().and_then(|p| p.parent().map(Path::to_path_buf))
     }
 
@@ -311,7 +311,7 @@ impl MarkdownView {
             PromptKind::PictureUrl if !v.is_empty() => {
                 let name = md::media::file_name(&v);
                 let alt = name.rsplit_once('.').map(|(n, _)| n.to_string()).unwrap_or(name);
-                self.block(format!("![\u{1}{alt}\u{1}]({v})"), cx)
+                self.place_picture(alt, v, cx)
             }
             PromptKind::TableSize => {
                 let nums: Vec<usize> = v.split(|c: char| !c.is_ascii_digit()).filter_map(|p| p.parse().ok()).collect();
@@ -739,7 +739,7 @@ impl MarkdownView {
             return;
         }
         let link = link_to(base.as_deref(), &path);
-        self.block(format!("![\u{1}Picture\u{1}]({link})"), cx);
+        self.place_picture("Picture".into(), link, cx);
         if base.is_none() {
             self.toast(format!("The picture is in {} — save the document to keep them together", dir.display()), cx);
         }

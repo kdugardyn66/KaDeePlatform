@@ -300,6 +300,8 @@ struct R {
     toc_depth: u8,
     head_font: Option<SharedString>,
     math_font: Option<SharedString>,
+    /// Pixels per centimetre at this zoom.
+    cm: f32,
 }
 
 impl R {
@@ -480,12 +482,25 @@ impl R {
             }
             Block::Paragraph { inlines, line } => {
                 // a picture on its own line is shown as a picture
-                if let [Inline::Image { url, alt, .. }] = inlines.as_slice() {
+                if let [Inline::Image { url, alt, style, .. }] = inlines.as_slice() {
                     let el = match md::media::kind(url) {
                         Some(m) => self.media(url, alt, m),
-                        None => self.image(url, alt),
+                        None => self.image(url, alt, style.as_deref()),
                     };
                     return Some(self.block(*line).mb(gap).child(el).into_any_element());
+                }
+                // pictures at a side or on their own: shown before the text
+                let floats = |i: &Inline| matches!(i, Inline::Image { style: Some(s), .. } if s.wrap != md::look::Wrap::Inline);
+                if inlines.iter().any(floats) {
+                    let mut els: Vec<AnyElement> = Vec::new();
+                    for i in inlines.iter().filter(|i| floats(i)) {
+                        if let Inline::Image { url, alt, style, .. } = i {
+                            els.push(self.image(url, alt, style.as_deref()));
+                        }
+                    }
+                    let rest: Vec<Inline> = inlines.iter().filter(|i| !floats(i)).cloned().collect();
+                    let text = self.inlines(&rest, col.fg, FontWeight::NORMAL, false);
+                    return Some(self.block(*line).mb(gap).flex().flex_col().gap(px(6.0)).children(els).child(text).into_any_element());
                 }
                 // @import "file": the file's icon and name, linked to it
                 if let Some(path) = md::media::import_of(inlines) {
@@ -650,7 +665,7 @@ impl R {
                 .text_size(px(s * 1.1))
                 .children(md::math::to_unicode(text).lines().map(|l| div().child(l.to_string())).collect::<Vec<_>>())
                 .into_any_element(),
-            Block::Table { aligns, header, rows, line } => self.table(aligns, header, rows, *line),
+            Block::Table { aligns, header, rows, line, look } => self.table(aligns, header, rows, look.as_deref(), *line),
             Block::Rule { line } => self.block(*line).my(px(s * 1.5)).h(px(s * 0.25)).bg(col.border).into_any_element(),
             Block::PageBreak { line } => self.divider(*line, "Page break"),
             Block::SlideBreak { line } => self.divider(*line, "Slide"),
@@ -791,36 +806,81 @@ impl R {
             .into_any_element()
     }
 
-    fn table(&mut self, aligns: &[Align], header: &[Vec<Inline>], rows: &[Vec<Vec<Inline>>], line: usize) -> AnyElement {
+    fn table(
+        &mut self,
+        aligns: &[Align],
+        header: &[Vec<Inline>],
+        rows: &[Vec<Vec<Inline>>],
+        look: Option<&md::look::TableLook>,
+        line: usize,
+    ) -> AnyElement {
         let col = self.col;
         let s = self.size;
         let n = header.len().max(1);
-        let mut cells: Vec<AnyElement> = Vec::new();
         let align = |d: gpui::Div, i: usize| match aligns.get(i) {
             Some(Align::Center) => d.flex().justify_center(),
             Some(Align::Right) => d.flex().justify_end(),
             _ => d,
         };
-        for (i, h) in header.iter().enumerate() {
-            let t = self.inlines(h, col.fg, FontWeight::SEMIBOLD, false);
-            cells.push(
-                align(div().px(px(13.0)).py(px(6.0)).min_h(px(s * 1.6 + 12.0)).border_1().border_color(col.border).bg(col.canvas), i)
-                    .child(t)
-                    .into_any_element(),
-            );
-        }
-        for (r, row) in rows.iter().enumerate() {
+        let rgb = |c: u32| -> Hsla { gpui::rgb(c).into() };
+        let nrows = rows.len() + 1;
+        let min_h = look.and_then(|l| l.row_height).map(|h| h * self.cm).unwrap_or(0.0).max(s * 1.6 + 12.0);
+        let mut cells: Vec<AnyElement> = Vec::new();
+        for r in 0..nrows {
             for i in 0..n {
-                let t = row.get(i).map(|c| self.inlines(c, col.fg, FontWeight::NORMAL, false));
-                let bg = if r % 2 == 0 { col.subtle } else { col.canvas };
-                cells.push(
-                    align(div().px(px(13.0)).py(px(6.0)).min_h(px(s * 1.6 + 12.0)).border_1().border_color(col.border).bg(bg), i)
-                        .children(t)
-                        .into_any_element(),
-                );
+                let content = if r == 0 { header.get(i) } else { rows[r - 1].get(i) };
+                let (bg, fg, bold, sides, border) = match look {
+                    // the plain look: a header and zebra rows
+                    None => {
+                        let bg = if r == 0 || r % 2 == 0 { col.canvas } else { col.subtle };
+                        (Some(bg), col.fg, r == 0, [true; 4], (col.border, 1.0))
+                    }
+                    Some(l) => {
+                        let c = l.cell(r, i, nrows, n);
+                        let b = l.border();
+                        // template colours are for a white page: dark text on them
+                        let fg = c.fg.map(rgb).unwrap_or(if c.bg.is_some() { rgb(0x1F2328) } else { col.fg });
+                        (c.bg.map(rgb), fg, c.bold, l.sides(r, i, nrows, n), (rgb(b.color), (b.width * 1.33).max(1.0)))
+                    }
+                };
+                let t = content.map(|c| self.inlines(c, fg, if bold { FontWeight::SEMIBOLD } else { FontWeight::NORMAL }, false));
+                let (bc, bw) = border;
+                let mut d = div().px(px(13.0)).py(px(6.0)).min_h(px(min_h)).border_color(bc);
+                if let Some(bg) = bg {
+                    d = d.bg(bg);
+                }
+                // each line drawn once: the top and left sides only on the first row and column
+                let [top, right, bottom, left] = sides;
+                if top && r == 0 {
+                    d = d.border_t(px(bw));
+                }
+                if bottom {
+                    d = d.border_b(px(bw));
+                }
+                if left && i == 0 {
+                    d = d.border_l(px(bw));
+                }
+                if right {
+                    d = d.border_r(px(bw));
+                }
+                if r > 0 && top && look.is_some_and(|l| !l.sides(r - 1, i, nrows, n)[2]) {
+                    d = d.border_t(px(bw));
+                }
+                if i > 0 && left && look.is_some_and(|l| !l.sides(r, i - 1, nrows, n)[1]) {
+                    d = d.border_l(px(bw));
+                }
+                cells.push(align(d, i).children(t).into_any_element());
             }
         }
-        self.block(line).mb(px(s)).child(div().grid().grid_cols(n as u16).text_size(px(s * 0.95)).children(cells)).into_any_element()
+        let width = look.and_then(|l| if l.fit { None } else { l.width });
+        let fit = look.is_some_and(|l| l.fit);
+        let grid = div().grid().grid_cols(n as u16).text_size(px(s * 0.95)).children(cells);
+        let grid = match (width, fit) {
+            (Some(w), _) => grid.w(px(w * self.cm)).max_w_full(),
+            (None, true) => grid,
+            (None, false) => grid.w_full(),
+        };
+        self.block(line).mb(px(s)).flex().child(grid).into_any_element()
     }
 
     fn divider(&mut self, line: usize, label: &str) -> AnyElement {
@@ -838,7 +898,10 @@ impl R {
             .into_any_element()
     }
 
-    fn image(&mut self, url: &str, alt: &str) -> AnyElement {
+    fn image(&mut self, url: &str, alt: &str, style: Option<&md::look::ImgStyle>) -> AnyElement {
+        if let Some(st) = style.filter(|s| !s.is_default()) {
+            return self.styled_image(url, alt, st);
+        }
         let col = self.col;
         let local = !url.contains("://") && !url.starts_with("data:");
         let path = local.then(|| resolve(self.base_dir.as_deref(), url)).flatten();
@@ -885,6 +948,56 @@ impl R {
                 .child(format!("🖼 {}  ({url})", if alt.is_empty() { "Picture" } else { alt }))
                 .into_any_element(),
         }
+    }
+
+    /// A picture with a style: its size from the width set, the pixels changed in the
+    /// background, at the side the style puts it.
+    fn styled_image(&mut self, url: &str, alt: &str, st: &md::look::ImgStyle) -> AnyElement {
+        let col = self.col;
+        let web = url.trim_start_matches('<').trim_end_matches('>');
+        let is_web = web.starts_with("http://") || web.starts_with("https://");
+        let path = (!is_web).then(|| resolve(self.base_dir.as_deref(), url)).flatten();
+        let src = match (&path, is_web) {
+            (Some(p), _) => p.to_string_lossy().to_string(),
+            (None, true) => web.to_string(),
+            (None, false) => return self.image(url, alt, None),
+        };
+        let natural = path.as_deref().and_then(crate::media::picture_size).map(|(w, h)| (w as f32, h as f32));
+        let width = st.width.map(|w| w * self.cm);
+        let size = natural.map(|(w, h)| md::look::styled_size(w, h, st, width.or(Some(w))));
+        let source = crate::media::StyledSource { src, css: st.to_css() };
+        let caption = if alt.is_empty() { "Picture".to_string() } else { alt.to_string() };
+        let mut el = img(gpui::ImageSource::Custom(Arc::new(move |window: &mut Window, cx: &mut App| {
+            window.use_asset::<crate::media::StyledPicture>(&source, cx).map(|loaded| {
+                loaded.ok_or_else(|| gpui::ImageCacheError::Io(Arc::new(std::io::Error::other("could not load the picture"))))
+            })
+        })))
+        .object_fit(ObjectFit::Contain)
+        .max_w_full()
+        .with_fallback(move || {
+            div()
+                .p(px(10.0))
+                .rounded(px(6.0))
+                .border_1()
+                .border_dashed()
+                .border_color(col.border)
+                .text_color(col.muted)
+                .text_size(px(13.0))
+                .child(format!("🖼 {caption}"))
+                .into_any_element()
+        });
+        el = match (size, width) {
+            (Some((w, h)), _) => el.w(px(w)).h(px(h)),
+            (None, Some(w)) => el.w(px(w)),
+            (None, None) => el,
+        };
+        let row = div().flex();
+        let row = match st.wrap {
+            md::look::Wrap::Left => row.justify_start(),
+            md::look::Wrap::Right => row.justify_end(),
+            _ => row.justify_center(),
+        };
+        row.child(el).into_any_element()
     }
 
     /// A chart or diagram drawn as SVG (cached), when its kind is drawn natively.
@@ -1236,6 +1349,7 @@ impl Preview {
             toc_depth: md::props::toc_depth(&self.parsed.front_matter),
             head_font: self.parsed.meta("sansfont").filter(|f| !f.trim().is_empty()).map(|f| SharedString::from(f.to_string())),
             math_font: self.parsed.meta("mathfont").filter(|f| !f.trim().is_empty()).map(|f| SharedString::from(f.to_string())),
+            cm: size / 16.0 * 37.8,
         }
     }
 

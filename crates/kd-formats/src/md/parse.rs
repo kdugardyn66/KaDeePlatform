@@ -32,6 +32,8 @@ pub enum Inline {
         url: String,
         alt: String,
         title: String,
+        /// Size, rotation, wrapping … (an `<img style>`).
+        style: Option<Box<super::look::ImgStyle>>,
     },
     /// `$…$`, or `$$…$$` when `display`.
     Math {
@@ -102,6 +104,8 @@ pub enum Block {
         header: Vec<Vec<Inline>>,
         rows: Vec<Vec<Vec<Inline>>>,
         line: usize,
+        /// Header, banded rows, template, borders … (a `<div data-table>` around it).
+        look: Option<Box<super::look::TableLook>>,
     },
     Rule {
         line: usize,
@@ -206,6 +210,46 @@ pub fn parse(text: &str) -> Parsed {
     out
 }
 
+/// A closed `<div>`: a styled block, or for `data-table` the tables inside with their look.
+fn close_div(style: super::para::ParaStyle, inner: Vec<Block>, line: usize) -> Vec<Block> {
+    if let Some((_, attr)) = style.other.iter().find(|(k, _)| k == "\u{0}table") {
+        let look = super::look::TableLook::parse(attr);
+        return inner
+            .into_iter()
+            .map(|b| match b {
+                Block::Table { aligns, header, rows, line, .. } => {
+                    Block::Table { aligns, header, rows, line, look: Some(Box::new(look.clone())) }
+                }
+                b => b,
+            })
+            .collect();
+    }
+    vec![Block::Styled { style, blocks: inner, line }]
+}
+
+/// `<img src alt style>` → a picture.
+fn img_tag(tag: &str) -> Inline {
+    let attr = |name: &str| -> String {
+        let lower = tag.to_ascii_lowercase();
+        let Some(p) = lower.find(&format!(" {name}=")) else { return String::new() };
+        let v = tag[p + name.len() + 2..].trim_start();
+        match v.chars().next() {
+            Some(q @ ('"' | '\'')) => v[1..].split(q).next().unwrap_or("").to_string(),
+            _ => v.split(|c: char| c.is_whitespace() || c == '>').next().unwrap_or("").to_string(),
+        }
+        .replace("&quot;", "\"")
+        .replace("&lt;", "<")
+        .replace("&amp;", "&")
+    };
+    let style = attr("style");
+    Inline::Image {
+        url: attr("src"),
+        alt: attr("alt"),
+        title: attr("title"),
+        style: (!style.is_empty()).then(|| Box::new(super::look::ImgStyle::from_css(&style))),
+    }
+}
+
 /// `<div style="…">`, the blocks, `</div>` → one [`Block::Styled`] (nested ones too).
 fn group_styled(blocks: Vec<Block>) -> Vec<Block> {
     // each open div: its style and line (none for the document), and its blocks so far
@@ -218,10 +262,17 @@ fn group_styled(blocks: Vec<Block>) -> Vec<Block> {
                 stack.push((Some((style, *line)), Vec::new()));
                 continue;
             }
+            if let Some(look) = super::look::div_table(t) {
+                // the look of the table inside: kept as a styled block without paragraph style
+                let mut style = super::para::ParaStyle::default();
+                style.other.push(("\u{0}table".into(), look.to_attr()));
+                stack.push((Some((style, *line)), Vec::new()));
+                continue;
+            }
             if t == "</div>" && stack.len() > 1 {
                 let (head, inner) = stack.pop().expect("open div");
                 let (style, line) = head.expect("a styled div");
-                stack.last_mut().expect("root").1.push(Block::Styled { style, blocks: inner, line });
+                stack.last_mut().expect("root").1.extend(close_div(style, inner, line));
                 continue;
             }
         }
@@ -231,7 +282,7 @@ fn group_styled(blocks: Vec<Block>) -> Vec<Block> {
     while stack.len() > 1 {
         let (head, inner) = stack.pop().expect("open div");
         let (style, line) = head.expect("a styled div");
-        stack.last_mut().expect("root").1.push(Block::Styled { style, blocks: inner, line });
+        stack.last_mut().expect("root").1.extend(close_div(style, inner, line));
     }
     stack.pop().map(|(_, b)| b).unwrap_or_default()
 }
@@ -321,6 +372,8 @@ fn block<'a>(node: &'a AstNode<'a>) -> Option<Block> {
                 Block::PageBreak { line }
             } else if is_marker(t, "slide") {
                 Block::SlideBreak { line }
+            } else if t.to_ascii_lowercase().starts_with("<img") && t.ends_with('>') && !t[1..].contains('<') {
+                Block::Paragraph { inlines: vec![img_tag(t)], line }
             } else {
                 Block::Html { text: h.literal.clone(), line }
             }
@@ -348,7 +401,7 @@ fn block<'a>(node: &'a AstNode<'a>) -> Option<Block> {
                     rows.push(cells);
                 }
             }
-            Block::Table { aligns, header, rows, line }
+            Block::Table { aligns, header, rows, line, look: None }
         }
         NodeValue::FootnoteDefinition(f) => Block::Footnote { label: f.name.clone(), blocks: blocks_of(node), line },
         // a paragraph made only of $$…$$
@@ -384,16 +437,18 @@ fn collect<'a>(node: &'a AstNode<'a>, style: &Style, out: &mut Vec<Inline>) {
         NodeValue::FootnoteReference(f) => out.push(Inline::FootnoteRef(f.name.clone())),
         NodeValue::Image(l) => {
             let alt = plain_text(node);
-            out.push(Inline::Image { url: l.url.clone(), alt, title: l.title.clone() });
+            out.push(Inline::Image { url: l.url.clone(), alt, title: l.title.clone(), style: None });
         }
         NodeValue::HtmlInline(h) => {
             let tag = h.trim().to_ascii_lowercase();
             if tag.starts_with("<br") {
                 out.push(Inline::Break);
+            } else if tag.starts_with("<img") {
+                out.push(img_tag(h));
             } else if let Some((src, audio)) = super::media::html_media(h) {
                 // <video>, <audio> and video <iframe>s are media like `![](clip.mp4)`
                 if audio || tag.starts_with("<video") || super::media::kind(&src).is_some() {
-                    out.push(Inline::Image { url: src, alt: String::new(), title: String::new() });
+                    out.push(Inline::Image { url: src, alt: String::new(), title: String::new(), style: None });
                 }
             }
             // <span style>, <u> … change the style of their siblings: see `collect_children`
@@ -432,6 +487,8 @@ fn collect_children<'a>(node: &'a AstNode<'a>, style: &Style, out: &mut Vec<Inli
                     stack.pop();
                 }
             }
+            // a picture is a void element: no closing tag
+            Some(tag) if tag.to_ascii_lowercase().starts_with("<img") => collect(c, &cur, out),
             Some(tag) if super::media::html_media(&tag).is_some() => {
                 // media tags are not styles: their closing tag must not pop one
                 collect(c, &cur, out);

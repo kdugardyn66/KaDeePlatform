@@ -38,7 +38,7 @@ impl Para {
 #[derive(Debug, Clone)]
 pub(crate) enum Item {
     Paras(Vec<Para>),
-    Table { aligns: Vec<Align>, header: Vec<Vec<Run>>, rows: Vec<Vec<Vec<Run>>> },
+    Table { aligns: Vec<Align>, header: Vec<Vec<Run>>, rows: Vec<Vec<Vec<Run>>>, look: Option<Box<crate::md::look::TableLook>> },
     Picture(Picture),
     Rule,
     PageBreak,
@@ -68,10 +68,27 @@ impl Builder<'_> {
 
     /// A paragraph's runs, with its own pictures pulled out as picture items.
     fn inline_para(&mut self, inl: &[Inline], kind: Kind, level: usize, bullet: Option<String>) {
-        if let [Inline::Image { url, alt, .. }] = inl {
-            match self.doc.picture(url) {
+        if let [Inline::Image { url, alt, style, .. }] = inl {
+            match self.doc.styled_picture(url, style.as_deref()) {
                 Some(p) => self.items.push(Item::Picture(p)),
                 None => self.para(Para { fmt: None, runs: vec![text(&format!("[{alt}]"), Style::default())], kind, level, bullet }),
+            }
+            return;
+        }
+        // floating pictures (at a side, or on their own) go before the text: the PDF and
+        // slide writers cannot flow text round them
+        let floats = |i: &Inline| matches!(i, Inline::Image { style: Some(s), .. } if s.wrap != crate::md::look::Wrap::Inline);
+        if inl.iter().any(floats) {
+            for i in inl.iter().filter(|i| floats(i)) {
+                if let Inline::Image { url, style, .. } = i
+                    && let Some(p) = self.doc.styled_picture(url, style.as_deref())
+                {
+                    self.items.push(Item::Picture(p));
+                }
+            }
+            let rest: Vec<Inline> = inl.iter().filter(|i| !floats(i)).cloned().collect();
+            if rest.iter().any(|i| !matches!(i, Inline::Text(t, _) if t.trim().is_empty()) && !matches!(i, Inline::Break)) {
+                self.para(Para { fmt: None, runs: runs(&rest), kind, level, bullet });
             }
             return;
         }
@@ -139,7 +156,8 @@ impl Builder<'_> {
                 level,
                 bullet: None,
             }),
-            Block::Table { aligns, header, rows, .. } => self.items.push(Item::Table {
+            Block::Table { aligns, header, rows, look, .. } => self.items.push(Item::Table {
+                look: look.clone(),
                 aligns: aligns.clone(),
                 header: header.iter().map(|c| runs(c)).collect(),
                 rows: rows.iter().map(|r| r.iter().map(|c| runs(c)).collect()).collect(),
@@ -225,7 +243,7 @@ pub(crate) fn runs_text(rs: &[Run]) -> String {
         .map(|r| match r {
             Run::Text(t, _) => t.clone(),
             Run::Break => "\n".into(),
-            Run::Image(_, alt) => format!("[{alt}]"),
+            Run::Image(_, alt, _) => format!("[{alt}]"),
         })
         .collect()
 }

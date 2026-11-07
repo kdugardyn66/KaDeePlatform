@@ -253,6 +253,8 @@ impl MarkdownView {
             }
             ColorTarget::Shading => kd_formats::md::para::style_at(t, head).background,
             ColorTarget::Border => kd_formats::md::para::style_at(t, head).border.map(|b| b.color),
+            ColorTarget::TableFill => kd_formats::md::look::table_look_at(t, head).and_then(|l| l.fill),
+            ColorTarget::TableBorder => kd_formats::md::look::table_look_at(t, head).map(|l| l.border().color),
         }
     }
 

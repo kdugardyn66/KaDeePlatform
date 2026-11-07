@@ -282,7 +282,7 @@ impl Writer {
                     }
                 }
                 Run::Break => out.push(None),
-                Run::Image(_, alt) => {
+                Run::Image(_, alt, _) => {
                     let bytes = encode(&format!("[{alt}] "));
                     let width = text_width(&bytes, Font::Italic, size);
                     out.push(Some(Piece { bytes, font: Font::Italic, size, color: color.to_string(), style: Style::default(), width }));
@@ -534,37 +534,81 @@ impl Writer {
             ph = max_h;
         }
         self.ensure(ph + 8.0);
-        let px = x + (w - pw) / 2.0;
+        let px = match p.wrap {
+            md::look::Wrap::Left => x,
+            md::look::Wrap::Right => x + w - pw,
+            _ => x + (w - pw) / 2.0,
+        };
         let y = self.y + 4.0;
         self.picture(p, px, y, pw, ph);
         self.y = y + ph + 10.0;
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn table(&mut self, aligns: &[Align], header: &[Vec<Run>], rows: &[Vec<Vec<Run>>], x: f32, w: f32, size: f32) {
+    fn table(
+        &mut self,
+        aligns: &[Align],
+        header: &[Vec<Run>],
+        rows: &[Vec<Vec<Run>>],
+        look: Option<&md::look::TableLook>,
+        x: f32,
+        w: f32,
+        size: f32,
+    ) {
+        let plain = look.is_none();
+        let look = look.cloned().unwrap_or_default();
         let n = header.len().max(1);
-        let col = w / n as f32;
         let pad = 4.0;
         let fg = self.fg.clone();
-        let all: Vec<(bool, Vec<Vec<Run>>)> =
-            std::iter::once((true, header.to_vec())).chain(rows.iter().map(|r| (false, r.clone()))).collect();
+        let all: Vec<Vec<Vec<Run>>> = std::iter::once(header.to_vec()).chain(rows.iter().cloned()).collect();
+        let nrows = all.len();
+        // the column widths: even, or as wide as the content when it fits
+        let w = look.width.map(|cm| (cm / 2.54 * 72.0).min(w)).unwrap_or(w);
+        let mut cols = vec![w / n as f32; n];
+        if look.fit {
+            let mut natural = vec![0f32; n];
+            for (r, cells) in all.iter().enumerate() {
+                let extra = Style { bold: look.cell(r, 0, nrows, n).bold || r == 0, ..Style::default() };
+                for (i, nat) in natural.iter_mut().enumerate() {
+                    let pieces = self.pieces(cells.get(i).map(Vec::as_slice).unwrap_or(&[]), size, &fg, &extra, false);
+                    let width: f32 = pieces.iter().flatten().map(|p| p.width).sum();
+                    *nat = nat.max(width + 2.0 * pad + 2.0);
+                }
+            }
+            let total: f32 = natural.iter().sum();
+            if total <= w {
+                cols = natural;
+            }
+        }
+        let b = look.border();
+        let bcolor = format!("{:06X}", b.color);
         self.y += size * 0.3;
-        for (head, cells) in all {
-            let extra = Style { bold: head, ..Style::default() };
+        for (r, cells) in all.iter().enumerate() {
+            let looks: Vec<md::look::CellLook> = (0..n).map(|i| look.cell(r, i, nrows, n)).collect();
             let lines: Vec<Vec<Vec<Piece>>> = (0..n)
                 .map(|i| {
-                    Self::lines(self.pieces(cells.get(i).map(Vec::as_slice).unwrap_or(&[]), size, &fg, &extra, false), col - 2.0 * pad)
+                    let cl = looks[i];
+                    let color = cl.fg.map(|c| format!("{c:06X}")).unwrap_or_else(|| fg.clone());
+                    let extra = Style { bold: cl.bold, ..Style::default() };
+                    Self::lines(
+                        self.pieces(cells.get(i).map(Vec::as_slice).unwrap_or(&[]), size, &color, &extra, false),
+                        cols[i] - 2.0 * pad,
+                    )
                 })
                 .collect();
             let lh = size * 1.3;
-            let rh = lines.iter().map(|l| l.len()).max().unwrap_or(1) as f32 * lh + 2.0 * pad;
+            let min_h = look.row_height.map(|cm| cm / 2.54 * 72.0).unwrap_or(0.0);
+            let rh = (lines.iter().map(|l| l.len()).max().unwrap_or(1) as f32 * lh + 2.0 * pad).max(min_h);
             self.ensure(rh);
             let top = self.y;
-            if head {
-                self.rect(x, top, w, rh, "F2F4F7");
-            }
+            let bottom = top + rh;
+            let mut cx = x;
             for (i, cell) in lines.iter().enumerate() {
-                let cx = x + i as f32 * col;
+                let col = cols[i];
+                let bg = if plain && r == 0 { Some(0xF2F4F7) } else { looks[i].bg };
+                if let Some(bg) = bg {
+                    self.rect(cx, top, col, rh, &format!("{bg:06X}"));
+                }
                 for (k, line) in cell.iter().enumerate() {
                     let lw: f32 = line.iter().map(|q| q.width).sum();
                     let lx = match aligns.get(i) {
@@ -574,13 +618,20 @@ impl Writer {
                     };
                     self.draw_line(line, lx, top + pad + k as f32 * lh + size);
                 }
-            }
-            let bottom = top + rh;
-            self.line(x, top, x + w, top, "D0D7DE", 0.5);
-            self.line(x, bottom, x + w, bottom, "D0D7DE", 0.5);
-            for i in 0..=n {
-                let cx = x + i as f32 * col;
-                self.line(cx, top, cx, bottom, "D0D7DE", 0.5);
+                let [t, rt, bt, lf] = look.sides(r, i, nrows, n);
+                if t {
+                    self.line(cx, top, cx + col, top, &bcolor, b.width);
+                }
+                if bt {
+                    self.line(cx, bottom, cx + col, bottom, &bcolor, b.width);
+                }
+                if lf {
+                    self.line(cx, top, cx, bottom, &bcolor, b.width);
+                }
+                if rt {
+                    self.line(cx + col, top, cx + col, bottom, &bcolor, b.width);
+                }
+                cx += col;
             }
             self.y = bottom;
         }
@@ -595,7 +646,7 @@ impl Writer {
                         self.para(p, x, w, size, center, false);
                     }
                 }
-                Item::Table { aligns, header, rows } => self.table(aligns, header, rows, x, w, size * 0.92),
+                Item::Table { aligns, header, rows, look } => self.table(aligns, header, rows, look.as_deref(), x, w, size * 0.92),
                 Item::Picture(p) => self.flow_picture(p, x, w),
                 Item::Rule => {
                     self.ensure(12.0);
@@ -714,9 +765,9 @@ pub fn write(doc: &Doc) -> Result<Vec<u8>, String> {
                         w.fg = saved;
                     }
                     SlideBox::Picture { x, y, w: bw, h, picture } => w.picture(&picture, x, y, bw, h),
-                    SlideBox::Table { x, y, w: bw, item: Item::Table { aligns, header, rows }, size, .. } => {
+                    SlideBox::Table { x, y, w: bw, item: Item::Table { aligns, header, rows, look }, size, .. } => {
                         w.y = y;
-                        w.table(&aligns, &header, &rows, x, bw, size);
+                        w.table(&aligns, &header, &rows, look.as_deref(), x, bw, size);
                     }
                     SlideBox::Table { .. } => {}
                 }

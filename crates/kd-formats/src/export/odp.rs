@@ -82,7 +82,7 @@ impl Ctx {
                     }
                 }
                 Run::Break => out.push_str("<text:line-break/>"),
-                Run::Image(_, alt) => out.push_str(&odf_text(&format!("[{alt}]"))),
+                Run::Image(_, alt, _) => out.push_str(&odf_text(&format!("[{alt}]"))),
             }
         }
         out

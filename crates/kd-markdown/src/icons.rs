@@ -279,6 +279,17 @@ pub fn load(path: &str) -> Option<&'static [u8]> {
         "md/shading.a.svg" => include_bytes!("../icons/shading.a.svg"),
         "md/shading.svg" => include_bytes!("../icons/shading.svg"),
         "md/eyedropper.svg" => include_bytes!("../icons/eyedropper.svg"),
+        "md/rotate-left.svg" => include_bytes!("../icons/rotate-left.svg"),
+        "md/rotate-right.svg" => include_bytes!("../icons/rotate-right.svg"),
+        "md/flip-h.svg" => include_bytes!("../icons/flip-h.svg"),
+        "md/flip-v.svg" => include_bytes!("../icons/flip-v.svg"),
+        "md/crop.svg" => include_bytes!("../icons/crop.svg"),
+        "md/wrap-inline.svg" => include_bytes!("../icons/wrap-inline.svg"),
+        "md/wrap-left.svg" => include_bytes!("../icons/wrap-left.svg"),
+        "md/wrap-right.svg" => include_bytes!("../icons/wrap-right.svg"),
+        "md/wrap-block.svg" => include_bytes!("../icons/wrap-block.svg"),
+        "md/opacity.svg" => include_bytes!("../icons/opacity.svg"),
+        "md/table-rows.svg" => include_bytes!("../icons/table-rows.svg"),
         _ => return None,
     })
 }

@@ -132,7 +132,15 @@ impl Ctx<'_> {
         let href = format!("Pictures/image{n}.{}", if p.ext == "jpeg" { "jpg" } else { "png" });
         self.pictures.push((href.clone(), p.data.clone()));
         let (w, h) = p.points(self.max_w_cm / 2.54 * 72.0);
-        picture_frame(&format!("Image{n}"), &href, w / 72.0 * 2.54, h / 72.0 * 2.54, "as-char")
+        let (wc, hc) = (w / 72.0 * 2.54, h / 72.0 * 2.54);
+        let side = match p.wrap {
+            crate::md::look::Wrap::Left => "frL",
+            crate::md::look::Wrap::Right => "frR",
+            _ => return picture_frame(&format!("Image{n}"), &href, wc, hc, "as-char"),
+        };
+        format!(
+            "<draw:frame draw:style-name=\"{side}\" draw:name=\"Image{n}\" text:anchor-type=\"paragraph\" svg:width=\"{wc:.3}cm\" svg:height=\"{hc:.3}cm\"><draw:image xlink:href=\"{href}\" xlink:type=\"simple\" xlink:show=\"embed\" xlink:actuate=\"onLoad\"/></draw:frame>"
+        )
     }
 
     fn inlines(&mut self, inl: &[Inline], extra: Option<&Style>) -> String {
@@ -144,6 +152,9 @@ impl Ctx<'_> {
                     if let Some(e) = extra {
                         s.bold |= e.bold;
                         s.italic |= e.italic;
+                        if s.color.is_none() {
+                            s.color = e.color.clone();
+                        }
                     }
                     if open_link.as_ref() != s.link.as_ref() {
                         if open_link.take().is_some() {
@@ -162,7 +173,7 @@ impl Ctx<'_> {
                     }
                 }
                 Run::Break => out.push_str("<text:line-break/>"),
-                Run::Image(url, alt) => match self.doc.picture(&url) {
+                Run::Image(url, alt, style) => match self.doc.styled_picture(&url, style.as_deref()) {
                     Some(p) => {
                         let f = self.picture(&p);
                         out.push_str(&f);
@@ -273,7 +284,7 @@ impl Ctx<'_> {
                 let x = odf_text(&crate::md::math::to_unicode(text));
                 self.p("Formula", &format!("<text:span text:style-name=\"Italic\">{x}</text:span>"));
             }
-            Block::Table { aligns, header, rows, .. } => self.table(aligns, header, rows),
+            Block::Table { aligns, header, rows, look, .. } => self.table(aligns, header, rows, look.as_deref()),
             Block::Rule { .. } => self.p("Horizontal_20_Line", ""),
             Block::PageBreak { .. } | Block::SlideBreak { .. } => self.p("PageBreak", ""),
             Block::Toc { .. } => {
@@ -345,41 +356,119 @@ impl Ctx<'_> {
         self.body.push_str("</text:list>");
     }
 
-    fn table(&mut self, aligns: &[Align], header: &[Vec<Inline>], rows: &[Vec<Vec<Inline>>]) {
+    fn table(&mut self, aligns: &[Align], header: &[Vec<Inline>], rows: &[Vec<Vec<Inline>>], look: Option<&crate::md::look::TableLook>) {
         self.tables += 1;
+        let t = self.tables;
         let n = header.len().max(1);
-        let _ = write!(
-            self.body,
-            "<table:table table:name=\"Table{}\" table:style-name=\"Tbl\"><table:table-column table:number-columns-repeated=\"{n}\"/>",
-            self.tables
-        );
         let para = |i: usize| match aligns.get(i) {
             Some(Align::Center) => "Table_20_Center",
             Some(Align::Right) => "Table_20_Right",
             _ => "Table_20_Contents",
         };
-        let bold = Style { bold: true, ..Style::default() };
-        self.body.push_str("<table:table-header-rows><table:table-row>");
-        for i in 0..n {
-            let x = header.get(i).map(|c| self.inlines(c, Some(&bold))).unwrap_or_default();
+        let Some(look) = look else {
+            // the plain look
             let _ = write!(
                 self.body,
-                "<table:table-cell table:style-name=\"TH\" office:value-type=\"string\"><text:p text:style-name=\"{}\">{x}</text:p></table:table-cell>",
-                para(i)
+                "<table:table table:name=\"Table{t}\" table:style-name=\"Tbl\"><table:table-column table:number-columns-repeated=\"{n}\"/>"
             );
-        }
-        self.body.push_str("</table:table-row></table:table-header-rows>");
-        for r in rows {
-            self.body.push_str("<table:table-row>");
+            let bold = Style { bold: true, ..Style::default() };
+            self.body.push_str("<table:table-header-rows><table:table-row>");
             for i in 0..n {
-                let x = r.get(i).map(|c| self.inlines(c, None)).unwrap_or_default();
+                let x = header.get(i).map(|c| self.inlines(c, Some(&bold))).unwrap_or_default();
                 let _ = write!(
                     self.body,
-                    "<table:table-cell table:style-name=\"TC\" office:value-type=\"string\"><text:p text:style-name=\"{}\">{x}</text:p></table:table-cell>",
+                    "<table:table-cell table:style-name=\"TH\" office:value-type=\"string\"><text:p text:style-name=\"{}\">{x}</text:p></table:table-cell>",
+                    para(i)
+                );
+            }
+            self.body.push_str("</table:table-row></table:table-header-rows>");
+            for r in rows {
+                self.body.push_str("<table:table-row>");
+                for i in 0..n {
+                    let x = r.get(i).map(|c| self.inlines(c, None)).unwrap_or_default();
+                    let _ = write!(
+                        self.body,
+                        "<table:table-cell table:style-name=\"TC\" office:value-type=\"string\"><text:p text:style-name=\"{}\">{x}</text:p></table:table-cell>",
+                        para(i)
+                    );
+                }
+                self.body.push_str("</table:table-row>");
+            }
+            self.body.push_str("</table:table>");
+            return;
+        };
+        // a table style, a row style and a cell style per cell, as automatic styles
+        let width = look.width.unwrap_or(self.max_w_cm);
+        let align = if look.width.is_some() || look.fit { "left" } else { "margins" };
+        let _ = write!(
+            self.para_styles,
+            "<style:style style:name=\"Tbl{t}\" style:family=\"table\"><style:table-properties style:width=\"{width:.2}cm\" table:align=\"{align}\" fo:margin-bottom=\"0.3cm\"/></style:style>"
+        );
+        let mut row_props = String::new();
+        if let Some(h) = look.row_height {
+            let _ = write!(row_props, " style:min-row-height=\"{h:.2}cm\"");
+        }
+        if look.keep_rows {
+            row_props.push_str(" fo:keep-together=\"always\"");
+        }
+        let row_style = if row_props.is_empty() {
+            String::new()
+        } else {
+            let _ = write!(
+                self.para_styles,
+                "<style:style style:name=\"Tbl{t}R\" style:family=\"table-row\"><style:table-row-properties{row_props}/></style:style>"
+            );
+            format!(" table:style-name=\"Tbl{t}R\"")
+        };
+        let b = look.border();
+        let line = format!("{}pt solid #{:06x}", (b.width * 100.0).round() / 100.0, b.color);
+        let _ = write!(
+            self.body,
+            "<table:table table:name=\"Table{t}\" table:style-name=\"Tbl{t}\"><table:table-column table:number-columns-repeated=\"{n}\"/>"
+        );
+        let nrows = rows.len() + 1;
+        let mut cell_styles: Vec<String> = Vec::new();
+        for r in 0..nrows {
+            let cells: &[Vec<Inline>] = if r == 0 { header } else { &rows[r - 1] };
+            if r == 0 && look.header {
+                self.body.push_str("<table:table-header-rows>");
+            }
+            let _ = write!(self.body, "<table:table-row{row_style}>");
+            for i in 0..n {
+                let cl = look.cell(r, i, nrows, n);
+                let sides = look.sides(r, i, nrows, n);
+                let mut props = String::from(" fo:padding=\"0.1cm\"");
+                for (k, name) in ["top", "right", "bottom", "left"].iter().enumerate() {
+                    let v = if sides[k] { line.as_str() } else { "none" };
+                    let _ = write!(props, " fo:border-{name}=\"{v}\"");
+                }
+                if let Some(bg) = cl.bg {
+                    let _ = write!(props, " fo:background-color=\"#{bg:06x}\"");
+                }
+                let name = match cell_styles.iter().position(|p| *p == props) {
+                    Some(k) => format!("Tbl{t}C{k}"),
+                    None => {
+                        let k = cell_styles.len();
+                        let _ = write!(
+                            self.para_styles,
+                            "<style:style style:name=\"Tbl{t}C{k}\" style:family=\"table-cell\"><style:table-cell-properties{props}/></style:style>"
+                        );
+                        cell_styles.push(props);
+                        format!("Tbl{t}C{k}")
+                    }
+                };
+                let extra = Style { bold: cl.bold, color: cl.fg.map(|c| format!("#{c:06X}")), ..Style::default() };
+                let x = cells.get(i).map(|c| self.inlines(c, Some(&extra))).unwrap_or_default();
+                let _ = write!(
+                    self.body,
+                    "<table:table-cell table:style-name=\"{name}\" office:value-type=\"string\"><text:p text:style-name=\"{}\">{x}</text:p></table:table-cell>",
                     para(i)
                 );
             }
             self.body.push_str("</table:table-row>");
+            if r == 0 && look.header {
+                self.body.push_str("</table:table-header-rows>");
+            }
         }
         self.body.push_str("</table:table>");
     }
@@ -532,7 +621,7 @@ pub fn write(doc: &Doc) -> Result<Vec<u8>, String> {
         }
     }
     let content = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-content {NS} office:version=\"1.3\"><office:automatic-styles>{}{}{}<style:style style:name=\"Tbl\" style:family=\"table\"><style:table-properties style:width=\"{:.2}cm\" table:align=\"margins\" fo:margin-bottom=\"0.3cm\"/></style:style><style:style style:name=\"TH\" style:family=\"table-cell\"><style:table-cell-properties fo:background-color=\"#f2f4f7\" fo:padding=\"0.1cm\" fo:border=\"0.5pt solid #d0d7de\"/></style:style><style:style style:name=\"TC\" style:family=\"table-cell\"><style:table-cell-properties fo:padding=\"0.1cm\" fo:border=\"0.5pt solid #d0d7de\"/></style:style></office:automatic-styles><office:body><office:text>{}</office:text></office:body></office:document-content>",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-content {NS} office:version=\"1.3\"><office:automatic-styles>{}{}{}<style:style style:name=\"Tbl\" style:family=\"table\"><style:table-properties style:width=\"{:.2}cm\" table:align=\"margins\" fo:margin-bottom=\"0.3cm\"/></style:style><style:style style:name=\"TH\" style:family=\"table-cell\"><style:table-cell-properties fo:background-color=\"#f2f4f7\" fo:padding=\"0.1cm\" fo:border=\"0.5pt solid #d0d7de\"/></style:style><style:style style:name=\"TC\" style:family=\"table-cell\"><style:table-cell-properties fo:padding=\"0.1cm\" fo:border=\"0.5pt solid #d0d7de\"/></style:style><style:style style:name=\"frL\" style:family=\"graphic\"><style:graphic-properties style:wrap=\"parallel\" style:horizontal-pos=\"left\" style:horizontal-rel=\"paragraph\" style:vertical-pos=\"top\" style:vertical-rel=\"paragraph\" fo:margin-right=\"0.4cm\" fo:margin-bottom=\"0.2cm\"/></style:style><style:style style:name=\"frR\" style:family=\"graphic\"><style:graphic-properties style:wrap=\"parallel\" style:horizontal-pos=\"right\" style:horizontal-rel=\"paragraph\" style:vertical-pos=\"top\" style:vertical-rel=\"paragraph\" fo:margin-left=\"0.4cm\" fo:margin-bottom=\"0.2cm\"/></style:style></office:automatic-styles><office:body><office:text>{}</office:text></office:body></office:document-content>",
         list_styles(),
         ctx.text.xml,
         ctx.para_styles,

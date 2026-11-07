@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use super::xml::esc;
 use super::{Doc, Picture, Run, package, runs};
 use crate::md::para::{BorderStyle, LineSpacing, ParaAlign, ParaStyle, Special};
-use crate::md::{Align, Block, ListItem, Style};
+use crate::md::{self, Align, Block, ListItem, Style};
 
 const W: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const R: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
@@ -43,9 +43,23 @@ impl Ctx<'_> {
         let (w, h) = p.points(max_pt);
         let (cx, cy) = ((w * 12700.0) as i64, (h * 12700.0) as i64);
         let (cx, cy) = if cx > self.max_w_emu { (self.max_w_emu, cy * self.max_w_emu / cx.max(1)) } else { (cx, cy) };
-        format!(
-            "<w:r><w:drawing><wp:inline distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\"><wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:docPr id=\"{n}\" name=\"Picture {n}\"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect=\"1\"/></wp:cNvGraphicFramePr><a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"><pic:pic><pic:nvPicPr><pic:cNvPr id=\"{n}\" name=\"image{n}\"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed=\"{rid}\"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"{cx}\" cy=\"{cy}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>"
-        )
+        let graphic = format!(
+            "<wp:docPr id=\"{n}\" name=\"Picture {n}\"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect=\"1\"/></wp:cNvGraphicFramePr><a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"><pic:pic><pic:nvPicPr><pic:cNvPr id=\"{n}\" name=\"image{n}\"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed=\"{rid}\"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"{cx}\" cy=\"{cy}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic>"
+        );
+        let side = match p.wrap {
+            md::look::Wrap::Left => Some("left"),
+            md::look::Wrap::Right => Some("right"),
+            _ => None,
+        };
+        match side {
+            // floating at the side of the column, the text round it
+            Some(side) => format!(
+                "<w:r><w:drawing><wp:anchor distT=\"0\" distB=\"114300\" distL=\"144000\" distR=\"144000\" simplePos=\"0\" relativeHeight=\"{n}\" behindDoc=\"0\" locked=\"0\" layoutInCell=\"1\" allowOverlap=\"1\"><wp:simplePos x=\"0\" y=\"0\"/><wp:positionH relativeFrom=\"column\"><wp:align>{side}</wp:align></wp:positionH><wp:positionV relativeFrom=\"paragraph\"><wp:posOffset>0</wp:posOffset></wp:positionV><wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/><wp:wrapSquare wrapText=\"bothSides\"/>{graphic}</wp:anchor></w:drawing></w:r>"
+            ),
+            None => format!(
+                "<w:r><w:drawing><wp:inline distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\"><wp:extent cx=\"{cx}\" cy=\"{cy}\"/>{graphic}</wp:inline></w:drawing></w:r>"
+            ),
+        }
     }
 
     fn rpr(s: &Style, extra: &str) -> String {
@@ -138,9 +152,9 @@ impl Ctx<'_> {
                     flush(&mut out, &mut pending_link, self);
                     out.push_str("<w:r><w:br/></w:r>");
                 }
-                Run::Image(url, alt) => {
+                Run::Image(url, alt, style) => {
                     flush(&mut out, &mut pending_link, self);
-                    match self.doc.picture(&url) {
+                    match self.doc.styled_picture(&url, style.as_deref()) {
                         Some(p) => {
                             let x = self.picture_run(&p, 451.0);
                             out.push_str(&x);
@@ -276,7 +290,7 @@ impl Ctx<'_> {
                 let x = Self::text_run(&crate::md::math::to_unicode(text), &Style { italic: true, ..Style::default() }, "");
                 self.para(None, "<w:jc w:val=\"center\"/>", &x);
             }
-            Block::Table { aligns, header, rows, .. } => self.table(aligns, header, rows),
+            Block::Table { aligns, header, rows, look, .. } => self.table(aligns, header, rows, look.as_deref()),
             Block::Rule { .. } => {
                 self.para(None, "<w:pBdr><w:bottom w:val=\"single\" w:sz=\"8\" w:space=\"1\" w:color=\"D0D7DE\"/></w:pBdr>", "");
             }
@@ -334,11 +348,33 @@ impl Ctx<'_> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn table(&mut self, aligns: &[Align], header: &[Vec<crate::md::Inline>], rows: &[Vec<Vec<crate::md::Inline>>]) {
+    fn table(
+        &mut self,
+        aligns: &[Align],
+        header: &[Vec<crate::md::Inline>],
+        rows: &[Vec<Vec<crate::md::Inline>>],
+        look: Option<&md::look::TableLook>,
+    ) {
+        let plain = look.is_none();
+        let look = look.cloned().unwrap_or_default();
         let n = header.len().max(1);
-        let col_w = 9000 / n;
-        let mut x = String::from(
-            "<w:tbl><w:tblPr><w:tblStyle w:val=\"TableGrid\"/><w:tblW w:w=\"5000\" w:type=\"pct\"/><w:tblLook w:val=\"04A0\" w:firstRow=\"1\" w:lastRow=\"0\" w:firstColumn=\"0\" w:lastColumn=\"0\" w:noHBand=\"0\" w:noVBand=\"1\"/></w:tblPr><w:tblGrid>",
+        let total_w = look.width.map(|cm| (cm / 2.54 * 1440.0) as usize).unwrap_or(9000);
+        let col_w = total_w / n;
+        let width = if look.fit {
+            "<w:tblW w:w=\"0\" w:type=\"auto\"/><w:tblLayout w:type=\"autofit\"/>".to_string()
+        } else if look.width.is_some() {
+            format!("<w:tblW w:w=\"{total_w}\" w:type=\"dxa\"/><w:tblLayout w:type=\"fixed\"/>")
+        } else {
+            "<w:tblW w:w=\"5000\" w:type=\"pct\"/>".to_string()
+        };
+        let mut x = format!(
+            "<w:tbl><w:tblPr>{width}<w:tblLook w:val=\"04A0\" w:firstRow=\"{}\" w:lastRow=\"{}\" w:firstColumn=\"{}\" w:lastColumn=\"{}\" w:noHBand=\"{}\" w:noVBand=\"{}\"/></w:tblPr><w:tblGrid>",
+            look.header as u8,
+            look.total as u8,
+            look.first_col as u8,
+            look.last_col as u8,
+            !look.banded_rows as u8,
+            !look.banded_cols as u8
         );
         for _ in 0..n {
             let _ = write!(x, "<w:gridCol w:w=\"{col_w}\"/>");
@@ -349,20 +385,62 @@ impl Ctx<'_> {
             Some(Align::Right) => "<w:jc w:val=\"right\"/>",
             _ => "",
         };
-        let all: Vec<(bool, Vec<Vec<crate::md::Inline>>)> =
-            std::iter::once((true, header.to_vec())).chain(rows.iter().map(|r| (false, r.clone()))).collect();
-        for (head, row) in all {
+        let border = look.border();
+        let line = format!(
+            "w:val=\"single\" w:sz=\"{}\" w:space=\"0\" w:color=\"{:06X}\"",
+            (border.width * 8.0).round().max(2.0) as i32,
+            border.color
+        );
+        let all: Vec<Vec<Vec<crate::md::Inline>>> = std::iter::once(header.to_vec()).chain(rows.iter().cloned()).collect();
+        let nrows = all.len();
+        for (r, row) in all.into_iter().enumerate() {
             x.push_str("<w:tr>");
-            if head {
-                x.push_str("<w:trPr><w:tblHeader/></w:trPr>");
+            let mut trpr = String::new();
+            if look.keep_rows {
+                trpr.push_str("<w:cantSplit/>");
+            }
+            if let Some(h) = look.row_height {
+                let _ = write!(trpr, "<w:trHeight w:val=\"{}\" w:hRule=\"atLeast\"/>", (h / 2.54 * 1440.0) as i32);
+            }
+            if r == 0 && look.header {
+                trpr.push_str("<w:tblHeader/>");
+            }
+            if !trpr.is_empty() {
+                let _ = write!(x, "<w:trPr>{trpr}</w:trPr>");
             }
             for i in 0..n {
                 let cell = row.get(i).cloned().unwrap_or_default();
-                let content = self.inlines(&cell, if head { "<w:b/>" } else { "" });
-                let shade = if head { "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"F2F4F7\"/>" } else { "" };
+                let mut cl = look.cell(r, i, nrows, n);
+                if plain && r == 0 {
+                    cl.bg = Some(0xF2F4F7);
+                }
+                let mut rpr = String::new();
+                if cl.bold {
+                    rpr.push_str("<w:b/>");
+                }
+                if let Some(fg) = cl.fg {
+                    let _ = write!(rpr, "<w:color w:val=\"{fg:06X}\"/>");
+                }
+                let content = self.inlines(&cell, &rpr);
+                let shade = cl.bg.map(|bg| format!("<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"{bg:06X}\"/>")).unwrap_or_default();
+                let sides = look.sides(r, i, nrows, n);
+                let mut borders = String::from("<w:tcBorders>");
+                for (k, name) in ["top", "right", "bottom", "left"].iter().enumerate() {
+                    if sides[k] {
+                        let _ = write!(borders, "<w:{name} {line}/>");
+                    } else {
+                        let _ = write!(borders, "<w:{name} w:val=\"nil\"/>");
+                    }
+                }
+                borders.push_str("</w:tcBorders>");
+                let tcw = if look.fit {
+                    "<w:tcW w:w=\"0\" w:type=\"auto\"/>".to_string()
+                } else {
+                    format!("<w:tcW w:w=\"{col_w}\" w:type=\"dxa\"/>")
+                };
                 let _ = write!(
                     x,
-                    "<w:tc><w:tcPr><w:tcW w:w=\"{col_w}\" w:type=\"dxa\"/>{shade}</w:tcPr><w:p><w:pPr><w:spacing w:before=\"40\" w:after=\"40\"/>{}</w:pPr>{content}</w:p></w:tc>",
+                    "<w:tc><w:tcPr>{tcw}{borders}{shade}</w:tcPr><w:p><w:pPr><w:spacing w:before=\"40\" w:after=\"40\"/>{}</w:pPr>{content}</w:p></w:tc>",
                     jc(i)
                 );
             }

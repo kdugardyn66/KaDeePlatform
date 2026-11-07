@@ -56,6 +56,12 @@ pub enum Menu {
     SaveAs,
     /// File › Export.
     Export,
+    /// Table settings › Rows & columns.
+    TableRowsCols,
+    /// Picture settings › Crop.
+    Crop,
+    /// Picture settings › Replace image.
+    ReplacePicture,
 }
 
 /// What a font or size menu changes.
@@ -132,6 +138,9 @@ pub enum ColorTarget {
     Shading,
     /// The paragraph's border (Paragraph › advanced settings).
     Border,
+    /// Table settings: the cells' background and the borders.
+    TableFill,
+    TableBorder,
 }
 
 impl ColorTarget {
@@ -141,6 +150,8 @@ impl ColorTarget {
             ColorTarget::Highlight => "Highlight color",
             ColorTarget::Shading => "Shading",
             ColorTarget::Border => "Border color",
+            ColorTarget::TableFill => "Table background",
+            ColorTarget::TableBorder => "Table borders",
         }
     }
     /// The command that applies a colour (`#RRGGBB`, "" for none).
@@ -150,6 +161,8 @@ impl ColorTarget {
             ColorTarget::Highlight => "format.highlightColor",
             ColorTarget::Shading => "para.shading",
             ColorTarget::Border => "para.borderColor",
+            ColorTarget::TableFill => "tbl.fill",
+            ColorTarget::TableBorder => "tbl.borderColor",
         }
     }
 }
@@ -629,6 +642,40 @@ pub fn entries(menu: Menu, fm: &dyn Fn(&str) -> Option<String>) -> Vec<Entry> {
             })
             .collect(),
         Menu::Export => vec![item("Webpage (HTML)", "web", "file.exportHtml", None)],
+        Menu::TableRowsCols => vec![
+            item("Insert row above", "plus", "tbl.op", Some("row-above".into())),
+            item("Insert row below", "plus", "tbl.op", Some("row-below".into())),
+            item("Insert column left", "plus", "tbl.op", Some("col-left".into())),
+            item("Insert column right", "plus", "tbl.op", Some("col-right".into())),
+            Entry::Sep,
+            item("Delete row", "minus", "tbl.op", Some("delete-row".into())),
+            item("Delete column", "minus", "tbl.op", Some("delete-col".into())),
+            item("Delete table", "trash", "tbl.op", Some("delete-table".into())),
+            Entry::Sep,
+            item("Tidy the columns", "table", "table.format", None),
+        ],
+        Menu::Crop => {
+            let cur = fm("\u{0}img").map(|css| md::look::ImgStyle::from_css(&css)).and_then(|s| s.crop);
+            let mut v = vec![Entry::Header("Crop to shape".into())];
+            for (label, ratio) in [
+                ("Original", None),
+                ("Square 1:1", Some((1, 1))),
+                ("4:3", Some((4, 3))),
+                ("3:2", Some((3, 2))),
+                ("16:9", Some((16, 9))),
+                ("3:4 portrait", Some((3, 4))),
+                ("2:3 portrait", Some((2, 3))),
+            ] {
+                let arg = ratio.map(|(a, b)| format!("{a}:{b}")).unwrap_or_else(|| "none".into());
+                v.push(checked(label, "crop", "pic.crop", &arg, cur == ratio));
+            }
+            v
+        }
+        Menu::ReplacePicture => vec![
+            item("From clipboard", "clipboard-rich", "pic.replace", Some("clipboard".into())),
+            item("From file…", "picture", "pic.replace", Some("file".into())),
+            item("From URL…", "web", "pic.replace", Some("url".into())),
+        ],
         Menu::Picture => vec![
             item("Picture from clipboard", "clipboard-rich", "insert.pictureClipboard", None),
             item("Picture from file…", "picture", "insert.picture", None),

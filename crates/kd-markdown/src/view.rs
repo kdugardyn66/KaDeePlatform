@@ -90,6 +90,7 @@ pub struct MarkdownView {
     /// The panel open on the right (Paragraph settings).
     right: Option<para::RightPanel>,
     para_ui: para::ParaUi,
+    obj_ui: objects::ObjUi,
     /// File › Properties.
     props_ui: props::PropsUi,
     /// Colours picked lately (the colour pickers' Recent colors).
@@ -135,6 +136,7 @@ pub struct MarkdownView {
 }
 
 mod files;
+mod objects;
 
 mod color;
 mod panels;
@@ -231,9 +233,11 @@ impl MarkdownView {
         ];
         let (para_ui, para_subs) = para::ParaUi::new(window, cx);
         let (props_ui, props_subs) = props::PropsUi::new(window, cx);
+        let (obj_ui, obj_subs) = objects::ObjUi::new(window, cx);
         let mut subs = subs;
         subs.extend(para_subs);
         subs.extend(props_subs);
+        subs.extend(obj_subs);
         let view = MarkdownView {
             focus: cx.focus_handle(),
             editor,
@@ -249,6 +253,7 @@ impl MarkdownView {
             author: String::new(),
             right: None,
             para_ui,
+            obj_ui,
             props_ui,
             recent_colors: Vec::new(),
             more_colors: None,
@@ -499,6 +504,7 @@ impl MarkdownView {
                 cx.emit(MarkdownEvent::Host(id))
             }
             id if id.starts_with("para.") => self.para_command(id, arg, window, cx),
+            id if id.starts_with("tbl.") || id.starts_with("pic.") => self.object_command(id, arg, window, cx),
             "file.properties" => self.open_props(arg.as_deref(), window, cx),
             "file.print" | "file.exportPdf" => self.print(window, cx),
             "file.exportHtml" => self.export_html(window, cx),
@@ -893,7 +899,7 @@ impl MarkdownView {
             let shown = base.as_ref().and_then(|b| p.strip_prefix(b).ok()).unwrap_or(&p).to_string_lossy().replace('\\', "/");
             let alt = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
             let link = if shown.contains(' ') { format!("<{shown}>") } else { shown };
-            let _ = this.update(cx, |this, cx| this.block(format!("![\u{1}{alt}\u{1}]({link})"), cx));
+            let _ = this.update(cx, |this, cx| this.place_picture(alt, link, cx));
         })
         .detach();
     }
@@ -927,6 +933,8 @@ impl MarkdownView {
             "view.system" => cx.global::<Theme>().pref == ThemePref::System,
             "design.numbered" | "design.justify" => self.fm(&id["design.".len()..], cx).is_some_and(|v| v == "true"),
             id if id.starts_with("para.") => self.para_checked(id, cx).unwrap_or(false),
+            "tbl.settings" => self.right == Some(para::RightPanel::Table),
+            "pic.settings" => self.right == Some(para::RightPanel::Picture),
             _ => false,
         }
     }
@@ -1893,6 +1901,9 @@ impl MarkdownView {
             }
             if k == "\u{0}para" {
                 return Some(md::para::style_at(&text, head).to_css());
+            }
+            if k == "\u{0}img" {
+                return md::look::image_at(&text, head).map(|i| i.style.to_css());
             }
             md::edit::front_matter(&text).into_iter().find(|(key, _)| key == k).map(|(_, v)| v)
         };

@@ -638,8 +638,10 @@ pub fn format_table(text: &str, sel: Selection, mutate: impl FnOnce(Vec<Vec<Stri
             }
         })
         .collect();
+    // the cursor stays in its row, in the first cell (the widths may have changed)
+    let row = cur.min(out.len().saturating_sub(1));
+    let head = from + out.iter().take(row).map(|l| l.len() + 1).sum::<usize>() + 2.min(out.get(row).map_or(0, |l| l.len()));
     let out = out.join("\n");
-    let head = (from + sel.head.saturating_sub(from)).min(from + out.len());
     Some(Edit { changes: vec![Change::new(from, to, out)], selection: Selection::cursor(head) })
 }
 

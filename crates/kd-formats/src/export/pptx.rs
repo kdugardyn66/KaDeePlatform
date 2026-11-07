@@ -146,7 +146,7 @@ impl Ctx<'_> {
                     }
                 }
                 Run::Break => out.push_str("<a:br/>"),
-                Run::Image(_, alt) => out.push_str(&self.run(&format!("[{alt}]"), &Style::default(), size, color, mono)),
+                Run::Image(_, alt, _) => out.push_str(&self.run(&format!("[{alt}]"), &Style::default(), size, color, mono)),
             }
         }
         out
@@ -331,7 +331,7 @@ pub fn write(doc: &Doc) -> Result<Vec<u8>, String> {
                 match b {
                     SlideBox::Text { x, y, w, h, paras, size, center, title } => ctx.text_box(x, y, w, h, &paras, size, center, title),
                     SlideBox::Picture { x, y, w, h, picture } => ctx.picture(x, y, w, h, &picture),
-                    SlideBox::Table { x, y, w, h, item: Item::Table { aligns, header, rows }, size } => {
+                    SlideBox::Table { x, y, w, h, item: Item::Table { aligns, header, rows, .. }, size } => {
                         ctx.table(x, y, w, h, &aligns, &header, &rows, size)
                     }
                     SlideBox::Table { .. } => {}

@@ -7,6 +7,7 @@ pub mod find;
 pub mod highlight;
 pub mod html;
 pub mod library;
+pub mod look;
 pub mod math;
 pub mod media;
 pub mod page;

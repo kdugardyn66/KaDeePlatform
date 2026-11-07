@@ -31,6 +31,8 @@ pub const FIELDS: [Field; 8] =
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RightPanel {
     Paragraph,
+    Table,
+    Picture,
 }
 
 /// Paragraph – advanced settings: its pages.
@@ -274,7 +276,38 @@ impl MarkdownView {
 
     pub(super) fn right_bar(&mut self, pal: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let (ic, ac) = icon_colors(pal);
-        let on = self.right == Some(RightPanel::Paragraph);
+        let in_table = self.table_here(cx).is_some();
+        let on_image = self.image_here(cx).is_some();
+        let button = |id: &'static str,
+                      icon: &'static str,
+                      tip: &'static str,
+                      panel: RightPanel,
+                      here: bool,
+                      cmd: &'static str,
+                      cx: &mut Context<Self>| {
+            let on = self.right == Some(panel);
+            // dimmed when the cursor is not in such a thing
+            let color: Hsla = if on {
+                pal.accent.into()
+            } else if here {
+                ic
+            } else {
+                ic.opacity(0.45)
+            };
+            div()
+                .id(id)
+                .size(px(34.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(7.0))
+                .cursor_pointer()
+                .when(on, |d| d.bg(pal.accent_soft))
+                .when(!on, |d| d.hover(|d| d.bg(pal.surface_hover)))
+                .child(md_icon(icon, 20.0, color, ac))
+                .tooltip(tooltip(tip))
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.run(cmd, None, window, cx)))
+        };
         div()
             .w(px(super::side::BAR_W))
             .flex_none()
@@ -287,21 +320,9 @@ impl MarkdownView {
             .bg(mix(pal.canvas, pal.surface, 0.5))
             .border_l_1()
             .border_color(pal.border)
-            .child(
-                div()
-                    .id("right-para")
-                    .size(px(34.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(7.0))
-                    .cursor_pointer()
-                    .when(on, |d| d.bg(pal.accent_soft))
-                    .when(!on, |d| d.hover(|d| d.bg(pal.surface_hover)))
-                    .child(md_icon("pilcrow", 20.0, if on { pal.accent.into() } else { ic }, ac))
-                    .tooltip(tooltip("Paragraph settings"))
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.para_command("para.settings", None, window, cx))),
-            )
+            .child(button("right-para", "pilcrow", "Paragraph settings", RightPanel::Paragraph, true, "para.settings", cx))
+            .child(button("right-table", "table", "Table settings", RightPanel::Table, in_table, "tbl.settings", cx))
+            .child(button("right-picture", "picture", "Picture settings", RightPanel::Picture, on_image, "pic.settings", cx))
             .into_any_element()
     }
 
@@ -529,13 +550,18 @@ impl MarkdownView {
 
     /// The Paragraph settings panel.
     pub(super) fn right_panel(&mut self, pal: &Palette, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
-        self.right?;
+        let panel = self.right?;
         if self.focus_mode {
             return None;
         }
+        if panel != RightPanel::Paragraph {
+            let body = self.object_panel(panel, pal, window, cx);
+            let title = if panel == RightPanel::Table { "Table settings" } else { "Picture settings" };
+            return Some(self.right_frame(title, body, pal, cx));
+        }
         self.para_sync(window, cx);
         let cur = self.para_here(cx);
-        let (ic, ac) = icon_colors(pal);
+
         let mut body = div().p(px(14.0)).flex().flex_col().gap(px(10.0));
         for el in self.indents_and_spacing(&cur, pal, cx) {
             body = body.child(el);
@@ -575,47 +601,51 @@ impl MarkdownView {
                     .child("Clear paragraph formatting")
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.para_edit(cx, |s| *s = ParaStyle::default()))),
             );
-        Some(
-            div()
-                .w(px(300.0))
-                .flex_none()
-                .h_full()
-                .flex()
-                .flex_col()
-                .bg(mix(pal.canvas, pal.surface, 0.5))
-                .border_l_1()
-                .border_color(pal.border)
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .h(px(46.0))
-                        .flex_none()
-                        .pl(px(14.0))
-                        .pr(px(8.0))
-                        .border_b_1()
-                        .border_color(pal.border)
-                        .child(div().flex_1().text_size(px(15.0)).font_weight(FontWeight::SEMIBOLD).child("Paragraph"))
-                        .child(
-                            div()
-                                .id("right-close")
-                                .size(px(28.0))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded(px(5.0))
-                                .cursor_pointer()
-                                .hover(|d| d.bg(pal.surface_hover))
-                                .child(md_icon("x", 18.0, ic, ac))
-                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                    this.right = None;
-                                    cx.notify();
-                                })),
-                        ),
-                )
-                .child(div().id("right-body").flex_1().min_h_0().overflow_y_scroll().child(body))
-                .into_any_element(),
-        )
+        Some(self.right_frame("Paragraph", body.into_any_element(), pal, cx))
+    }
+
+    /// A panel of the toolbar on the right: its title, a close button and the body.
+    pub(super) fn right_frame(&self, title: &'static str, body: AnyElement, pal: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let (ic, ac) = icon_colors(pal);
+        div()
+            .w(px(300.0))
+            .flex_none()
+            .h_full()
+            .flex()
+            .flex_col()
+            .bg(mix(pal.canvas, pal.surface, 0.5))
+            .border_l_1()
+            .border_color(pal.border)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .h(px(46.0))
+                    .flex_none()
+                    .pl(px(14.0))
+                    .pr(px(8.0))
+                    .border_b_1()
+                    .border_color(pal.border)
+                    .child(div().flex_1().text_size(px(15.0)).font_weight(FontWeight::SEMIBOLD).child(title))
+                    .child(
+                        div()
+                            .id("right-close")
+                            .size(px(28.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(5.0))
+                            .cursor_pointer()
+                            .hover(|d| d.bg(pal.surface_hover))
+                            .child(md_icon("x", 18.0, ic, ac))
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.right = None;
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(div().id("right-body").flex_1().min_h_0().overflow_y_scroll().child(body))
+            .into_any_element()
     }
 
     /// Paragraph – advanced settings.

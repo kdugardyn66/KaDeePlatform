@@ -69,6 +69,8 @@ fn esc(s: &str) -> String {
 fn fragment(md: &str, opts: &HtmlOptions) -> String {
     // page breaks and the table of contents
     let mut src = String::with_capacity(md.len());
+    // numbered across the slides, which are made one by one
+    static TABLES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     for line in md.split_inclusive('\n') {
         let t = line.trim();
         if t.starts_with("<!--") && t.contains("pagebreak") {
@@ -78,6 +80,14 @@ fn fragment(md: &str, opts: &HtmlOptions) -> String {
             let cut = t.rfind("){").map(|p| p + 1).unwrap_or(t.len());
             src.push_str(&t[..cut]);
             src.push('\n');
+        } else if let Some(look) = super::look::div_table(t) {
+            // a table's look: its own style rules
+            let tables = TABLES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            let _ = writeln!(
+                src,
+                "<style>\n{}</style>\n<div class=\"kd-table kd-t{tables}\">",
+                look.css(&format!(".markdown-body .kd-t{tables}"))
+            );
         } else if let Some(path) = media::import_path(t) {
             // an included file: its icon and name, linked to it
             let _ = writeln!(
