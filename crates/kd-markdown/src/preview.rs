@@ -1567,28 +1567,7 @@ impl Render for Preview {
         }
         let mut r = self.r(size, dark, cx);
         r.heading = self.theme.filter(|t| !t.deck && !dark && t.id != "github").map(|t| rgb(t.colors[0]).into());
-        let front: Option<AnyElement> = (!self.parsed.front_matter.is_empty()).then(|| {
-            let rows: Vec<AnyElement> = self
-                .parsed
-                .front_matter
-                .iter()
-                .flat_map(|(k, v)| {
-                    [
-                        div()
-                            .px(px(10.0))
-                            .py(px(4.0))
-                            .border_1()
-                            .border_color(col.border)
-                            .bg(col.subtle)
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(k.clone())
-                            .into_any_element(),
-                        div().px(px(10.0)).py(px(4.0)).border_1().border_color(col.border).child(v.clone()).into_any_element(),
-                    ]
-                })
-                .collect();
-            div().mb(px(size)).text_size(px(13.0)).grid().grid_cols(2).children(rows).into_any_element()
-        });
+        // the front matter is for the source only: it is not shown in the document
         // every top-level block is a child of the scroller, so the preview can scroll to one
         let blocks: Vec<AnyElement> = self
             .parsed
@@ -1597,7 +1576,7 @@ impl Render for Preview {
             .iter()
             .map(|b| column(r.render_block(b, 0).unwrap_or_else(|| div().into_any_element()), max_w))
             .collect();
-        let empty = self.parsed.blocks.is_empty() && front.is_none();
+        let empty = self.parsed.blocks.is_empty();
         let watermark = self.parsed.meta("watermark").filter(|w| !w.is_empty()).map(|w| {
             div()
                 .absolute()
@@ -1609,7 +1588,7 @@ impl Render for Preview {
                 .child(w.to_string())
         });
         root.relative()
-            .child(div().pt(px(32.0)).child(column(front.unwrap_or_else(|| div().into_any_element()), max_w)))
+            .child(div().pt(px(32.0)))
             .children(blocks)
             .when(empty, |d| {
                 d.child(column(div().text_color(col.muted).child("Nothing to preview yet — start typing.").into_any_element(), max_w))

@@ -104,6 +104,18 @@ Kadee Markdown: MdCraft rebuilt natively in GPUI and opened in KadeeStudio's tab
   - In Word and OpenDocument, text flows round a picture set to Left or Right.
   - In PDF and the preview, such a picture sits at that side above its text.
 - Rows & columns operations keep the cursor in its row.
+- The Table and Picture buttons are always shown at full strength; a blue dot marks the one for what the cursor is in. The version number is now 0.2.9 (Settings › About shows it).
+
+**0.2.10: Document properties panel; front matter no longer shown**
+
+- **The front matter is not shown in the document any more.** The preview no longer prints it as a table of title, author, date and theme. It only lives in the Markdown source, and it is applied to the whole document: theme, fonts, page layout, table of contents, numbered headings, abstract and metadata.
+- **Document properties in the right-hand toolbar**: a new button at the top opens a panel with every property, one section after another.
+  - *Document*: title, subtitle, author(s), date with *Today*, abstract and keywords.
+  - *Fonts*: body text, headings and tables, code, formulas, and the font size.
+  - *Page layout*: paper, orientation, margins (presets or each edge), theme, table of contents with its depth, and numbered headings.
+  - *Language*: the text direction.
+  - A value is kept when you press Enter or leave the box. The panel follows changes made in the source.
+  - File › Properties opens the same panel.
 
 ## 0.1.0 — 2026-11-03
 

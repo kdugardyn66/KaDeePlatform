@@ -30,6 +30,7 @@ pub const FIELDS: [Field; 8] =
 /// The panels of the toolbar on the right.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RightPanel {
+    Properties,
     Paragraph,
     Table,
     Picture,
@@ -287,13 +288,8 @@ impl MarkdownView {
                       cx: &mut Context<Self>| {
             let on = self.right == Some(panel);
             // dimmed when the cursor is not in such a thing
-            let color: Hsla = if on {
-                pal.accent.into()
-            } else if here {
-                ic
-            } else {
-                ic.opacity(0.45)
-            };
+            // always shown; an accent dot when the cursor is in such a thing
+            let color: Hsla = if on { pal.accent.into() } else { ic };
             div()
                 .id(id)
                 .size(px(34.0))
@@ -304,7 +300,11 @@ impl MarkdownView {
                 .cursor_pointer()
                 .when(on, |d| d.bg(pal.accent_soft))
                 .when(!on, |d| d.hover(|d| d.bg(pal.surface_hover)))
+                .relative()
                 .child(md_icon(icon, 20.0, color, ac))
+                .when(here && !on && id != "right-para" && id != "right-props", |d| {
+                    d.child(div().absolute().top(px(5.0)).right(px(5.0)).size(px(6.0)).rounded_full().bg(pal.accent))
+                })
                 .tooltip(tooltip(tip))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.run(cmd, None, window, cx)))
         };
@@ -320,6 +320,8 @@ impl MarkdownView {
             .bg(mix(pal.canvas, pal.surface, 0.5))
             .border_l_1()
             .border_color(pal.border)
+            .child(button("right-props", "front-matter", "Document properties", RightPanel::Properties, true, "file.properties", cx))
+            .child(div().w(px(24.0)).h(px(1.0)).bg(pal.border))
             .child(button("right-para", "pilcrow", "Paragraph settings", RightPanel::Paragraph, true, "para.settings", cx))
             .child(button("right-table", "table", "Table settings", RightPanel::Table, in_table, "tbl.settings", cx))
             .child(button("right-picture", "picture", "Picture settings", RightPanel::Picture, on_image, "pic.settings", cx))
@@ -553,6 +555,10 @@ impl MarkdownView {
         let panel = self.right?;
         if self.focus_mode {
             return None;
+        }
+        if panel == RightPanel::Properties {
+            let body = self.props_panel(pal, window, cx);
+            return Some(self.right_frame("Document properties", body, pal, cx));
         }
         if panel != RightPanel::Paragraph {
             let body = self.object_panel(panel, pal, window, cx);

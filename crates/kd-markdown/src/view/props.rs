@@ -20,6 +20,9 @@ pub enum PropsTab {
 pub struct PropsUi {
     pub tab: Option<PropsTab>,
     pub inputs: Vec<(&'static str, Entity<TextInput>)>,
+    /// The front matter the panel's boxes show, and whether a box was typed in.
+    shown: Option<String>,
+    dirty: bool,
 }
 
 const TEXT_KEYS: [(&str, &str); 10] = [
@@ -45,13 +48,24 @@ impl PropsUi {
                 if key == "abstract" { i.multiline() } else { i }
             });
             subs.push(cx.subscribe_in(&input, window, move |this: &mut MarkdownView, _, e: &InputEvent, window, cx| match e {
-                InputEvent::Submit => this.props_commit(Some(key), cx),
+                InputEvent::Submit => {
+                    this.props_commit(Some(key), cx);
+                    this.props_ui.dirty = false;
+                }
                 InputEvent::Escape => this.close_props(window, cx),
-                InputEvent::Changed => {}
+                InputEvent::Changed => this.props_ui.dirty = true,
+            }));
+            // leaving a box keeps what was typed in it
+            let handle = gpui::Focusable::focus_handle(input.read(cx), cx);
+            subs.push(cx.on_focus_out(&handle, window, move |this: &mut MarkdownView, _, _, cx| {
+                if this.props_ui.dirty {
+                    this.props_commit(Some(key), cx);
+                    this.props_ui.dirty = false;
+                }
             }));
             inputs.push((key, input));
         }
-        (PropsUi { tab: None, inputs }, subs)
+        (PropsUi { tab: None, inputs, shown: None, dirty: false }, subs)
     }
 
     fn input(&self, key: &str) -> Entity<TextInput> {
@@ -76,6 +90,20 @@ impl MarkdownView {
 
     /// Open the properties (on a page: `layout` for Custom margins…).
     pub(super) fn open_props(&mut self, page: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
+        if self.right == Some(super::para::RightPanel::Properties) && page.is_none() {
+            self.close_props(window, cx);
+            self.right = None;
+            return;
+        }
+        self.right = Some(super::para::RightPanel::Properties);
+        self.props_ui.shown = None;
+        self.props_load(window, cx);
+        self.props_ui.input("title").read(cx).focus(window);
+        cx.notify();
+    }
+
+    /// Show the front matter's values in the boxes (not in the one being typed in).
+    fn props_load(&mut self, window: &Window, cx: &mut Context<Self>) {
         let front = self.front(cx);
         let get = |k: &str| front.iter().find(|(key, _)| key == k).map(|(_, v)| v.clone()).unwrap_or_default();
         let m = self.page_setup(cx).margins;
@@ -89,17 +117,54 @@ impl MarkdownView {
                 "margin-right" => cm(m.right),
                 k => get(k),
             };
-            input.update(cx, |i, cx| i.set_text(v, cx));
+            if !input.read(cx).is_focused(window) {
+                input.update(cx, |i, cx| i.set_text(v, cx));
+            }
         }
-        self.props_ui.tab = Some(if page == Some("layout") { PropsTab::Layout } else { PropsTab::Identity });
-        if page != Some("layout") {
-            self.props_ui.input("title").read(cx).focus(window);
+        self.props_ui.shown = Some(format!("{front:?}"));
+        // filling the boxes is not typing
+        self.props_ui.dirty = false;
+    }
+
+    /// The Document properties panel on the right: all the properties, page after page.
+    pub(super) fn props_panel(&mut self, pal: &Palette, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        let focused = self.props_ui.inputs.iter().any(|(_, i)| i.read(cx).is_focused(window));
+        // a box was left: keep what was typed
+        if self.props_ui.dirty && !focused {
+            self.props_ui.dirty = false;
+            self.props_commit(None, cx);
         }
-        cx.notify();
+        let front = self.front(cx);
+        if self.props_ui.shown.as_deref() != Some(format!("{front:?}").as_str()) {
+            self.props_load(window, cx);
+        }
+        let mut body = div().p(px(14.0)).flex().flex_col().gap(px(10.0));
+        for (i, (tab, title)) in [
+            (PropsTab::Identity, "Document"),
+            (PropsTab::Fonts, "Fonts"),
+            (PropsTab::Layout, "Page layout"),
+            (PropsTab::Language, "Language"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if i > 0 {
+                body = body.child(div().h(px(1.0)).bg(pal.border).my(px(6.0)));
+            }
+            body = body.child(div().text_size(px(15.0)).font_weight(FontWeight::SEMIBOLD).child(title)).child(self.props_page(
+                tab,
+                true,
+                div().flex().flex_col().gap(px(10.0)),
+                pal,
+                cx,
+            ));
+        }
+        body.into_any_element()
     }
 
     pub(super) fn close_props(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.props_commit(None, cx);
+        self.props_ui.dirty = false;
         self.props_ui.tab = None;
         self.focus_editor(window, cx);
         cx.notify();
@@ -307,81 +372,58 @@ impl MarkdownView {
         div().mt(px(4.0)).text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).child(t).into_any_element()
     }
 
-    /// The properties window.
-    pub(super) fn props_dialog(&mut self, pal: &Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let tab = self.props_ui.tab?;
+    /// One page of the properties, in `page` (`compact`: the narrow panel on the right).
+    fn props_page(&mut self, tab: PropsTab, compact: bool, mut page: gpui::Div, pal: &Palette, cx: &mut Context<Self>) -> gpui::Div {
         let front = self.front(cx);
         let get = |k: &str| front.iter().find(|(key, _)| key == k).map(|(_, v)| v.clone());
         let (ic, ac) = icon_colors(pal);
-        let tabs = [
-            (PropsTab::Identity, "Document"),
-            (PropsTab::Fonts, "Fonts"),
-            (PropsTab::Layout, "Page layout"),
-            (PropsTab::Language, "Language"),
-        ];
-        let nav =
-            div().w(px(170.0)).flex_none().py(px(10.0)).border_r_1().border_color(pal.border).children(tabs.iter().map(|(t, label)| {
-                let t = *t;
-                div()
-                    .id(("props-tab", t as usize))
-                    .px(px(16.0))
-                    .py(px(10.0))
-                    .text_size(px(14.0))
-                    .font_weight(FontWeight::MEDIUM)
-                    .cursor_pointer()
-                    .when(t == tab, |d| d.bg(pal.surface_hover))
-                    .hover(|d| d.bg(pal.surface_hover))
-                    .child(*label)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.props_commit(None, cx);
-                        this.props_ui.tab = Some(t);
-                        cx.notify();
-                    }))
-            }));
-        let mut page = div().id("props-page").flex_1().min_w_0().overflow_y_scroll().p(px(20.0)).flex().flex_col().gap(px(12.0));
         match tab {
             PropsTab::Identity => {
                 page = page
                     .child(self.props_field("Title", "title", 32.0, pal))
                     .child(self.props_field("Subtitle", "subtitle", 32.0, pal))
                     .child(
-                        div().flex().gap(px(12.0)).child(div().flex_1().child(self.props_field("Author", "author", 32.0, pal))).child(
-                            div()
-                                .w(px(170.0))
-                                .flex()
-                                .items_end()
-                                .gap(px(6.0))
-                                .child(div().flex_1().child(self.props_field("Date", "date", 32.0, pal)))
-                                .child(
-                                    div()
-                                        .id("props-today")
-                                        .size(px(32.0))
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .rounded(px(5.0))
-                                        .border_1()
-                                        .border_color(pal.border_strong)
-                                        .cursor_pointer()
-                                        .hover(|d| d.bg(pal.surface_hover))
-                                        .child(md_icon("calendar", 16.0, ic, ac))
-                                        .tooltip(tooltip("Today"))
-                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                            let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-                                            this.props_ui.input("date").update(cx, |i, cx| i.set_text(today, cx));
-                                            this.props_commit(Some("date"), cx);
-                                        })),
-                                ),
-                        ),
+                        div()
+                            .flex()
+                            .when(compact, |d| d.flex_col())
+                            .gap(px(12.0))
+                            .child(div().flex_1().child(self.props_field("Author", "author", 32.0, pal)))
+                            .child(
+                                div()
+                                    .w(px(170.0))
+                                    .flex()
+                                    .items_end()
+                                    .gap(px(6.0))
+                                    .child(div().flex_1().child(self.props_field("Date", "date", 32.0, pal)))
+                                    .child(
+                                        div()
+                                            .id("props-today")
+                                            .size(px(32.0))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded(px(5.0))
+                                            .border_1()
+                                            .border_color(pal.border_strong)
+                                            .cursor_pointer()
+                                            .hover(|d| d.bg(pal.surface_hover))
+                                            .child(md_icon("calendar", 16.0, ic, ac))
+                                            .tooltip(tooltip("Today"))
+                                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                                let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+                                                this.props_ui.input("date").update(cx, |i, cx| i.set_text(today, cx));
+                                                this.props_commit(Some("date"), cx);
+                                            })),
+                                    ),
+                            ),
                     )
                     .child(self.props_field("Abstract", "abstract", 96.0, pal))
                     .child(self.props_field("Keywords", "keywords", 32.0, pal))
-                    .child(
-                        div()
-                            .text_size(px(12.0))
-                            .text_color(pal.text_faint)
-                            .child("Press Enter to keep a value; the window keeps them all when it closes."),
-                    );
+                    .child(div().text_size(px(12.0)).text_color(pal.text_faint).child(if compact {
+                        "Press Enter, or click elsewhere, to keep a value."
+                    } else {
+                        "Press Enter to keep a value; the window keeps them all when it closes."
+                    }));
             }
             PropsTab::Fonts => {
                 let font = |label: &'static str,
@@ -394,8 +436,9 @@ impl MarkdownView {
                     let value: &'static str = Box::leak(get(key).unwrap_or_else(|| fallback.to_string()).into_boxed_str());
                     div()
                         .flex()
-                        .items_center()
-                        .gap(px(12.0))
+                        .when(compact, |d| d.flex_col().items_start())
+                        .when(!compact, |d| d.items_center())
+                        .gap(px(if compact { 4.0 } else { 12.0 }))
                         .child(div().w(px(150.0)).flex_none().text_size(px(13.0)).child(label))
                         .child(this.font_box(cmd, value, 260.0, n, pal, cx))
                 };
@@ -463,9 +506,20 @@ impl MarkdownView {
                             .gap(px(10.0))
                             .child(div().flex_1().child(self.props_field("Top", "margin-top", 32.0, pal)))
                             .child(div().flex_1().child(self.props_field("Bottom", "margin-bottom", 32.0, pal)))
-                            .child(div().flex_1().child(self.props_field("Left", "margin-left", 32.0, pal)))
-                            .child(div().flex_1().child(self.props_field("Right", "margin-right", 32.0, pal))),
+                            .when(!compact, |d| {
+                                d.child(div().flex_1().child(self.props_field("Left", "margin-left", 32.0, pal)))
+                                    .child(div().flex_1().child(self.props_field("Right", "margin-right", 32.0, pal)))
+                            }),
                     )
+                    .when(compact, |d| {
+                        d.child(
+                            div()
+                                .flex()
+                                .gap(px(10.0))
+                                .child(div().flex_1().child(self.props_field("Left", "margin-left", 32.0, pal)))
+                                .child(div().flex_1().child(self.props_field("Right", "margin-right", 32.0, pal))),
+                        )
+                    })
                     .child(Self::section_title("Theme"))
                     .child(self.pills("props-theme", themes, pal, cx))
                     .child(Self::section_title("Structure"))
@@ -492,6 +546,44 @@ impl MarkdownView {
                     );
             }
         }
+        page
+    }
+
+    /// The properties window.
+    pub(super) fn props_dialog(&mut self, pal: &Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let tab = self.props_ui.tab?;
+        let tabs = [
+            (PropsTab::Identity, "Document"),
+            (PropsTab::Fonts, "Fonts"),
+            (PropsTab::Layout, "Page layout"),
+            (PropsTab::Language, "Language"),
+        ];
+        let nav =
+            div().w(px(170.0)).flex_none().py(px(10.0)).border_r_1().border_color(pal.border).children(tabs.iter().map(|(t, label)| {
+                let t = *t;
+                div()
+                    .id(("props-tab", t as usize))
+                    .px(px(16.0))
+                    .py(px(10.0))
+                    .text_size(px(14.0))
+                    .font_weight(FontWeight::MEDIUM)
+                    .cursor_pointer()
+                    .when(t == tab, |d| d.bg(pal.surface_hover))
+                    .hover(|d| d.bg(pal.surface_hover))
+                    .child(*label)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.props_commit(None, cx);
+                        this.props_ui.tab = Some(t);
+                        cx.notify();
+                    }))
+            }));
+        let page = div().id("props-page").flex_1().min_w_0().overflow_y_scroll().p(px(20.0)).child(self.props_page(
+            tab,
+            false,
+            div().flex().flex_col().gap(px(12.0)),
+            pal,
+            cx,
+        ));
         let card = div()
             .occlude()
             .w(px(760.0))
