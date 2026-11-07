@@ -276,7 +276,7 @@ pub fn tabs() -> Vec<Tab> {
                     ])],
                 ),
                 g("Styles", vec![G(Gallery::Styles)]),
-                g("Editing", vec![col(vec![small("edit.find"), small("edit.replace"), small("edit.selectAll")])]),
+                g("Editing", vec![col(vec![small("edit.find"), small("edit.selectAll")])]),
                 g("KaDee AI", vec![B(large("ai.ask"))]),
             ],
         },
@@ -373,6 +373,7 @@ pub fn tabs() -> Vec<Tab> {
             contextual: false,
             groups: vec![
                 g("Proofing", vec![B(large("review.spelling").label("Spelling")), B(large("review.wordcount"))]),
+                g("Comments", vec![B(large("review.comment")), B(large("view.comments"))]),
                 g("Accessibility", vec![B(large("review.accessibility"))]),
                 g("Structure", vec![B(large("review.outline")), col(vec![small("table.format"), small("edit.goto")])]),
             ],

@@ -586,7 +586,9 @@ impl KadeeApp {
     fn markdown_view(&mut self, text: &str, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Entity<MarkdownView> {
         let view = cx.new(|cx| MarkdownView::new(text, Some(path), window, cx));
         let (recent, dirs, docs) = (self.markdown_recent(), self.template_dirs(), self.state.settings.documents_dir.clone());
+        let author = self.state.settings.display_name.clone();
         view.update(cx, |v, _| {
+            v.author = author;
             v.recent = recent;
             v.template_dirs = dirs;
             v.documents_dir = Some(docs);

@@ -175,6 +175,17 @@ fn inline(line: &str, start: usize, quote: bool, toks: &mut LineToks) {
     while i < b.len() {
         let at = i;
         let c = b[i];
+        // an HTML comment in the line (comments on the text)
+        if c == b'<'
+            && line[i..].starts_with("<!--")
+            && let Some(end) = line[i + 4..].find("-->")
+        {
+            flush(plain_from, i, toks);
+            toks.push((i..i + 4 + end + 3, Tok::Comment));
+            i += 4 + end + 3;
+            plain_from = i;
+            continue;
+        }
         // inline code
         if c == b'`' {
             let n = b[i..].iter().take_while(|x| **x == b'`').count();

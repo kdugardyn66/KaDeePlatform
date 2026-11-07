@@ -42,7 +42,6 @@ pub fn bind_present_keys(cx: &mut gpui::App) {
 }
 
 pub struct FindState {
-    pub replace: bool,
     pub opts: FindOptions,
     pub matches: Vec<Range<usize>>,
     pub current: Option<usize>,
@@ -138,9 +137,10 @@ impl MarkdownView {
     // ---- Find and Replace ----------------------------------------------------------------------
 
     pub(super) fn open_find(&mut self, replace: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.side = Some(super::side::Side::Find);
         let sel = self.editor.read(cx).selected_text().to_string();
         let opts = self.find.as_ref().map(|f| f.opts).unwrap_or_default();
-        self.find = Some(FindState { replace, opts, matches: Vec::new(), current: None });
+        self.find = Some(FindState { opts, matches: Vec::new(), current: None });
         if !sel.is_empty() && !sel.contains('\n') {
             self.find_input.update(cx, |i, cx| i.set_text(sel, cx));
         }
@@ -154,14 +154,22 @@ impl MarkdownView {
     }
 
     pub(super) fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.clear_find_marks(cx);
+        if self.side == Some(super::side::Side::Find) {
+            self.side = None;
+        }
+        self.focus_editor(window, cx);
+        cx.notify();
+    }
+
+    /// Stop showing the matches in the editor.
+    pub(super) fn clear_find_marks(&mut self, cx: &mut Context<Self>) {
         self.find = None;
         self.editor.update(cx, |e, cx| {
             e.marks.clear();
             e.mark_current = None;
             cx.notify();
         });
-        self.focus_editor(window, cx);
-        cx.notify();
     }
 
     pub(super) fn refresh_matches(&mut self, cx: &mut Context<Self>) {
@@ -231,7 +239,7 @@ impl MarkdownView {
         cx.notify();
     }
 
-    fn replace_everything(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn replace_everything(&mut self, cx: &mut Context<Self>) {
         let q = self.find_input.read(cx).text().to_string();
         let with = self.replace_input.read(cx).text().to_string();
         let opts = self.find.as_ref().map(|f| f.opts).unwrap_or_default();
@@ -244,135 +252,6 @@ impl MarkdownView {
         });
         self.refresh_matches(cx);
         self.toast(if n == 0 { "Nothing to replace".to_string() } else { format!("Replaced {n} × “{q}”") }, cx);
-        cx.notify();
-    }
-
-    pub(super) fn find_bar(&mut self, pal: &Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let f = self.find.as_ref()?;
-        let (ic, ac) = icon_colors(pal);
-        let count = match (f.current, f.matches.len()) {
-            (_, 0) if self.find_input.read(cx).text().is_empty() => String::new(),
-            (_, 0) => "No results".into(),
-            (Some(i), n) => format!("{} of {n}", i + 1),
-            (None, n) => format!("{n} found"),
-        };
-        let input = |el: gpui::Entity<kd_ui::TextInput>, w: f32| {
-            div()
-                .w(px(w))
-                .h(px(26.0))
-                .px(px(8.0))
-                .flex()
-                .items_center()
-                .rounded(px(5.0))
-                .border_1()
-                .border_color(pal.border_strong)
-                .bg(pal.surface)
-                .text_size(px(13.0))
-                .child(el)
-        };
-        let icon_btn = |id: &'static str, icon: &'static str, tip: &'static str, on: bool, cx: &mut Context<Self>| {
-            div()
-                .id(id)
-                .size(px(26.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(5.0))
-                .cursor_pointer()
-                .when(on, |d| d.bg(pal.accent_soft))
-                .hover(|d| d.bg(pal.surface_hover))
-                .child(md_icon(icon, 16.0, ic, ac))
-                .tooltip(tooltip(tip))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.find_button(id, window, cx)))
-        };
-        let toggle = |id: &'static str, label: &'static str, tip: &'static str, on: bool, cx: &mut Context<Self>| {
-            div()
-                .id(id)
-                .h(px(26.0))
-                .px(px(7.0))
-                .flex()
-                .items_center()
-                .rounded(px(5.0))
-                .border_1()
-                .border_color(if on { pal.accent } else { pal.border })
-                .when(on, |d| d.bg(pal.accent_soft).text_color(pal.accent))
-                .text_size(px(12.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .cursor_pointer()
-                .child(label)
-                .tooltip(tooltip(tip))
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.find_button(id, window, cx)))
-        };
-        let replace = f.replace;
-        let (case, word) = (f.opts.match_case, f.opts.whole_word);
-        let first = div()
-            .flex()
-            .items_center()
-            .gap(px(6.0))
-            .child(input(self.find_input.clone(), 260.0))
-            .child(div().w(px(74.0)).text_size(px(12.0)).text_color(pal.text_muted).child(count))
-            .child(icon_btn("find-prev", "chevron-up", "Previous", false, cx))
-            .child(icon_btn("find-next", "chevron-down", "Next (Enter)", false, cx))
-            .child(toggle("find-case", "Aa", "Match case", case, cx))
-            .child(toggle("find-word", "W", "Whole words", word, cx))
-            .child(icon_btn("find-replace", "replace", "Replace", replace, cx))
-            .child(div().flex_1())
-            .child(icon_btn("find-close", "x", "Close (Esc)", false, cx));
-        let second = replace.then(|| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.0))
-                .child(input(self.replace_input.clone(), 260.0))
-                .child(
-                    button("find-do-replace", "Replace", pal)
-                        .h(px(26.0))
-                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.replace_one(window, cx))),
-                )
-                .child(
-                    button("find-do-all", "Replace all", pal)
-                        .h(px(26.0))
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.replace_everything(cx))),
-                )
-        });
-        Some(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(6.0))
-                .px(px(10.0))
-                .py(px(6.0))
-                .bg(kd_ui::mix(pal.canvas, pal.surface, 0.5))
-                .border_b_1()
-                .border_color(pal.border)
-                .child(first)
-                .children(second)
-                .into_any_element(),
-        )
-    }
-
-    fn find_button(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        match id {
-            "find-prev" => self.find_step(true, cx),
-            "find-next" => self.find_step(false, cx),
-            "find-close" => return self.close_find(window, cx),
-            "find-replace" => {
-                if let Some(f) = self.find.as_mut() {
-                    f.replace = !f.replace;
-                }
-            }
-            "find-case" | "find-word" => {
-                if let Some(f) = self.find.as_mut() {
-                    if id == "find-case" {
-                        f.opts.match_case = !f.opts.match_case;
-                    } else {
-                        f.opts.whole_word = !f.opts.whole_word;
-                    }
-                }
-                self.refresh_matches(cx);
-            }
-            _ => {}
-        }
         cx.notify();
     }
 

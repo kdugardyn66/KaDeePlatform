@@ -165,6 +165,8 @@ fn toc(md: &str) -> String {
 
 /// The whole page.
 pub fn to_html(text: &str, opts: &HtmlOptions) -> String {
+    // comments are for the authors, not the readers
+    let text = &*super::comments::strip(text);
     let fm = edit::front_matter(text);
     let get = |k: &str| fm.iter().find(|(key, _)| key == k).map(|(_, v)| v.clone());
     let parsed = parse::parse(text);

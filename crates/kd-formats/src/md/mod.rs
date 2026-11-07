@@ -1,5 +1,6 @@
 //! Markdown, in MdCraft's dialect.
 
+pub mod comments;
 pub mod diagram;
 pub mod edit;
 pub mod find;

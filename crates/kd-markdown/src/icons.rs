@@ -259,6 +259,13 @@ pub fn load(path: &str) -> Option<&'static [u8]> {
         "md/zoom-in.svg" => include_bytes!("../icons/zoom-in.svg"),
         "md/zoom-out.a.svg" => include_bytes!("../icons/zoom-out.a.svg"),
         "md/zoom-out.svg" => include_bytes!("../icons/zoom-out.svg"),
+        "md/comment.a.svg" => include_bytes!("../icons/comment.a.svg"),
+        "md/comment.svg" => include_bytes!("../icons/comment.svg"),
+        "md/comment-add.a.svg" => include_bytes!("../icons/comment-add.a.svg"),
+        "md/comment-add.svg" => include_bytes!("../icons/comment-add.svg"),
+        "md/megaphone.a.svg" => include_bytes!("../icons/megaphone.a.svg"),
+        "md/megaphone.svg" => include_bytes!("../icons/megaphone.svg"),
+        "md/navigation.svg" => include_bytes!("../icons/navigation.svg"),
         _ => return None,
     })
 }
@@ -268,6 +275,9 @@ pub fn has_accent(name: &str) -> bool {
     matches!(
         name,
         "accessibility"
+            | "comment"
+            | "comment-add"
+            | "megaphone"
             | "audio"
             | "background"
             | "calendar"

@@ -60,6 +60,14 @@ Kadee Markdown: MdCraft rebuilt natively in GPUI and opened in KadeeStudio's tab
 - **File › Document info** (after Open Recent, in a group of its own): name, type, location, size, created and modified dates, saved state, title / author / theme from the front matter, words with reading time, characters, lines, headings, slides and what the document contains (tables, pictures, videos, diagrams, links, included files).
 - About no longer shows the icon credits line.
 
+**Markdown enhancements, phase 1 — step 1: toolbar on the left**
+
+- **A toolbar on the left of the editor** with four panels: **Find & Replace**, **Comments**, **Navigation** and **Help & Feedback**. One panel is open at a time; click its button again (or ×) to close it.
+- **Find & Replace** as a panel: find and replace boxes, *n of m* with previous/next, Replace and Replace All, *Case sensitive* and *Whole words only*. On the Home ribbon, Find and Replace are one **Find & Replace** button that opens the same panel (Ctrl+F).
+- **Comments**: select text, click *New comment* (in the panel or Review › Comments) and write. A comment is kept in the file as a hidden HTML comment after the text (`<!-- comment (Name, date): text -->`), so other Markdown apps and every export leave it out. The panel lists the comments with author, date and the text they are about; click one to go to it, ✓ to resolve (delete) it, the bin to delete all. The toolbar shows how many there are; the editor shows them dimmed.
+- **Navigation**: the headings and slides of the document with *Search the document*, as before, now in the panel.
+- **Help & Feedback**: Markdown guide, keyboard shortcuts, search commands, *Suggest an idea* and *Report a problem* (open a new GitHub issue with the version and system filled in).
+
 ## 0.1.0 — 2026-11-03
 
 The KaDee Platform's first version: KadeeStudio's start screen as a standalone GPUI app.

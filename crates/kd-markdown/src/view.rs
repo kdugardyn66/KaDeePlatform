@@ -81,7 +81,12 @@ pub struct MarkdownView {
     pub path: Option<PathBuf>,
     tab: TabId,
     pub mode: ViewMode,
-    nav: bool,
+    /// The panel open on the left: Find and replace, Comments, Navigation, Help.
+    side: Option<side::Side>,
+    comment_input: Entity<TextInput>,
+    adding_comment: bool,
+    /// The writer's name, for comments (set by the host).
+    pub author: String,
     nav_slides: bool,
     sync: bool,
     collapsed: bool,
@@ -123,6 +128,7 @@ pub struct MarkdownView {
 mod files;
 
 mod panels;
+mod side;
 pub use panels::bind_present_keys;
 
 impl EventEmitter<MarkdownEvent> for MarkdownView {}
@@ -142,6 +148,7 @@ impl MarkdownView {
         let find_input = cx.new(|cx| TextInput::new(cx, "Find"));
         let replace_input = cx.new(|cx| TextInput::new(cx, "Replace with"));
         let prompt_input = cx.new(|cx| TextInput::new(cx, ""));
+        let comment_input = cx.new(|cx| TextInput::new(cx, "Write a comment"));
         let font_filter = cx.new(|cx| TextInput::new(cx, "Type to find a font"));
         let base = path.as_ref().and_then(|p| p.parent().map(|d| d.to_path_buf()));
         preview.update(cx, |p, cx| {
@@ -186,6 +193,15 @@ impl MarkdownView {
                 InputEvent::Escape => this.close_find(window, cx),
                 InputEvent::Changed => {}
             }),
+            cx.subscribe_in(&comment_input, window, |this, _, e: &InputEvent, window, cx| match e {
+                InputEvent::Submit => this.add_comment(window, cx),
+                InputEvent::Escape => {
+                    this.adding_comment = false;
+                    this.focus_editor(window, cx);
+                    cx.notify();
+                }
+                InputEvent::Changed => {}
+            }),
             cx.subscribe_in(&prompt_input, window, |this, _, e: &InputEvent, window, cx| match e {
                 InputEvent::Submit => this.submit_prompt(window, cx),
                 InputEvent::Escape => this.close_prompt(window, cx),
@@ -210,7 +226,10 @@ impl MarkdownView {
             path,
             tab: TabId::Home,
             mode: ViewMode::Split,
-            nav: false,
+            side: None,
+            comment_input,
+            adding_comment: false,
+            author: String::new(),
             nav_slides: false,
             sync: true,
             collapsed: false,
@@ -745,14 +764,17 @@ impl MarkdownView {
                 self.toast(format!("{words} words · {chars} characters · {lines} lines"), cx);
             }
             "review.outline" => {
-                self.nav = true;
+                self.side = Some(side::Side::Nav);
                 self.nav_slides = false;
             }
+            "review.comment" => self.start_comment(window, cx),
+            "view.comments" => self.show_side(side::Side::Comments, true, window, cx),
+            "help.feedback" => self.show_side(side::Side::Help, true, window, cx),
 
             "view.write" => self.mode = ViewMode::Write,
             "view.split" => self.mode = ViewMode::Split,
             "view.read" => self.mode = ViewMode::Read,
-            "view.nav" => self.nav = !self.nav,
+            "view.nav" => self.show_side(side::Side::Nav, true, window, cx),
             "view.lineNumbers" => ed.update(cx, |e, cx| {
                 e.line_numbers = !e.line_numbers;
                 cx.notify();
@@ -822,7 +844,7 @@ impl MarkdownView {
             "view.write" => self.mode == ViewMode::Write,
             "view.split" => self.mode == ViewMode::Split,
             "view.read" => self.mode == ViewMode::Read,
-            "view.nav" => self.nav,
+            "view.nav" => self.side == Some(side::Side::Nav),
             "view.lineNumbers" => ed.line_numbers,
             "view.wrap" => ed.wrap,
             "view.sync" => self.sync,
@@ -1623,7 +1645,7 @@ impl MarkdownView {
         let empty = rows.is_empty();
         let (ic, ac) = icon_colors(pal);
         div()
-            .w(px(250.0))
+            .w(px(side::PANEL_W))
             .flex_none()
             .flex()
             .flex_col()
@@ -1662,10 +1684,7 @@ impl MarkdownView {
                             .hover(|d| d.bg(pal.surface_hover))
                             .child(md_icon("x", 16.0, ic, ac))
                             .tooltip(tooltip("Close"))
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.nav = false;
-                                cx.notify();
-                            })),
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_side(window, cx))),
                     ),
             )
             .child(
@@ -2038,7 +2057,8 @@ impl Render for MarkdownView {
         let show_ribbon = show_top && (!self.collapsed || self.peek);
         let tabstrip = show_top.then(|| self.tabstrip(&pal, cx).into_any_element());
         let ribbon = show_ribbon.then(|| self.ribbon(&pal, cx).into_any_element());
-        let nav = (self.nav && !self.focus_mode).then(|| self.nav_pane(&pal, cx).into_any_element());
+        let side_bar = (!self.focus_mode).then(|| self.side_bar(&pal, cx));
+        let nav = self.side_panel(&pal, cx);
         let status = (!self.focus_mode).then(|| self.status_bar(&pal, cx).into_any_element());
         let results = self.search_results(&pal, cx);
         let menu = self.menu.as_ref().map(|m| (m.menu, m.at));
@@ -2056,7 +2076,6 @@ impl Render for MarkdownView {
             )
             .with_priority(3)
         });
-        let find = self.find_bar(&pal, cx);
         let template = self.template_bar(&pal, cx);
         let prompt = self.prompt_card(&pal, cx);
         let info = self.info_card(&pal, cx);
@@ -2072,7 +2091,6 @@ impl Render for MarkdownView {
                 .flex_col()
                 .when(self.mode == ViewMode::Split, |d| d.w(relative(split)).flex_none())
                 .when(self.mode == ViewMode::Write, |d| d.flex_1())
-                .children(find)
                 .child(div().flex_1().min_h_0().child(self.editor.clone()))
         });
         let dragging = self.dragging;
@@ -2133,6 +2151,7 @@ impl Render for MarkdownView {
                     .min_h_0()
                     .flex()
                     .child(measure)
+                    .children(side_bar)
                     .children(nav)
                     .children(editor_pane)
                     .children(divider)
@@ -2140,7 +2159,7 @@ impl Render for MarkdownView {
                     .when(dragging, |d| {
                         d.on_mouse_move(cx.listener(|this, e: &gpui::MouseMoveEvent, _, cx| {
                             let b = this.main_bounds.get();
-                            let nav = if this.nav { 250.0 } else { 0.0 };
+                            let nav = this.side_width();
                             let w = f32::from(b.size.width) - nav;
                             if w > 100.0 {
                                 let x = f32::from(e.position.x - b.left()) - nav;
